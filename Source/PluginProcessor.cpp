@@ -137,7 +137,7 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         float wetL = getInterpolatedSample(delayLeft, bufferLength, readPosL);
         float wetR = getInterpolatedSample(delayRight, bufferLength, readPosR);
 
-        // Process TPT filters on the feedback loop (1 sample per channel)
+        // Process TPT filters on feedback loop
         wetL = hpFilterL.processSample(0, wetL);
         wetL = lpFilterL.processSample(0, wetL);
 
@@ -181,6 +181,12 @@ float DelayAudioProcessor::getInterpolatedSample(const float* buffer, int buffer
 
     float frac = readPosition - static_cast<float>(index1);
     return buffer[index1] + frac * (buffer[index2] - buffer[index1]);
+}
+
+// THIS METHOD RESOLVES THE LINKER ERROR:
+juce::AudioProcessorEditor* DelayAudioProcessor::createEditor()
+{
+    return new DelayAudioProcessorEditor (*this);
 }
 
 void DelayAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
