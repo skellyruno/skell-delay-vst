@@ -62,15 +62,22 @@ void DelayAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     smoothedFeedback.reset(sampleRate, 0.02);
     smoothedMix.reset(sampleRate, 0.02);
 
-    // Setup DSP filters in loop
-    juce::dsp::ProcessSpec spec { sampleRate, static_cast<juce::uint32>(samplesPerBlock), 2 };
-    hpFilter.prepare(spec);
-    hpFilter.setType(juce::dsp::StateVariableFilter::Parameters<float>::Type::highPass);
-    hpFilter.setCutoffFrequency(150.0f); // Trim mud
+    // Setup TPT filters (1 channel per filter instance)
+    juce::dsp::ProcessSpec spec { sampleRate, static_cast<juce::uint32>(samplesPerBlock), 1 };
 
-    lpFilter.prepare(spec);
-    lpFilter.setType(juce::dsp::StateVariableFilter::Parameters<float>::Type::lowPass);
-    lpFilter.setCutoffFrequency(5000.0f); // Warm top end decay
+    hpFilterL.prepare(spec);
+    hpFilterR.prepare(spec);
+    hpFilterL.setType(juce::dsp::StateVariableTPTFilterType::highpass);
+    hpFilterR.setType(juce::dsp::StateVariableTPTFilterType::highpass);
+    hpFilterL.setCutoffFrequency(150.0f);
+    hpFilterR.setCutoffFrequency(150.0f);
+
+    lpFilterL.prepare(spec);
+    lpFilterR.prepare(spec);
+    lpFilterL.setType(juce::dsp::StateVariableTPTFilterType::lowpass);
+    lpFilterR.setType(juce::dsp::StateVariableTPTFilterType::lowpass);
+    lpFilterL.setCutoffFrequency(5000.0f);
+    lpFilterR.setCutoffFrequency(5000.0f);
 }
 
 void DelayAudioProcessor::releaseResources() {}
@@ -124,15 +131,16 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         float wetL = getInterpolatedSample(delayLeft, bufferLength, readPosL);
         float wetR = getInterpolatedSample(delayRight, bufferLength, readPosR);
 
-        // Filter feedback loop (High-pass + Low-pass)
-        wetL = hpFilter.processSample(0, wetL);
-        wetL = lpFilter.processSample(0, wetL);
-        wetR = hpFilter.processSample(1, wetR);
-        wetR = lpFilter.processSample(1, wetR);
+        // Process TPT filters on the feedback loop (1 sample per channel)
+        wetL = hpFilterL.processSample(0, wetL);
+        wetL = lpFilterL.processSample(0, wetL);
 
-        // Auto-Ducking Logic (Baby Comeback Style)
+        wetR = hpFilterR.processSample(0, wetR);
+        wetR = lpFilterR.processSample(0, wetR);
+
+        // Auto-Ducking Logic
         float dryEnvelope = (std::abs(mainLeft[sample]) + std::abs(mainRight[sample])) * 0.5f;
-        duckingEnv += (dryEnvelope - duckingEnv) * 0.002f; // Envelope tracking
+        duckingEnv += (dryEnvelope - duckingEnv) * 0.002f;
         float duckGain = 1.0f - (duckingEnv * duckingAmount);
         
         float finalWetL = wetL * duckGain;
@@ -142,7 +150,7 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         float feedL = isPingPong ? wetR : wetL;
         float feedR = isPingPong ? wetL : wetR;
 
-        // Color/Saturation on Feedback Loop (Tanh soft clip)
+        // Color/Saturation on Feedback Loop
         feedL = std::tanh(feedL * drive) * currentFeedback;
         feedR = std::tanh(feedR * drive) * currentFeedback;
 
