@@ -26,8 +26,15 @@ juce_add_plugin(DelayPlugin
     PRODUCT_NAME "Custom Delay"
 )
 
-# ADD THIS LINE: Tells JUCE CMake to generate JuceHeader.h
 juce_generate_juce_header(DelayPlugin)
+
+# FIX: Disable legacy VST2 preset compatibility in the VST3 wrapper
+target_compile_definitions(DelayPlugin
+    PRIVATE
+        JUCE_VST3_CAN_REPLACE_VST2=0
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+)
 
 target_sources(DelayPlugin
     PRIVATE
