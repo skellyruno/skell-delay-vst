@@ -15,35 +15,41 @@ juce::AudioProcessorValueTreeState::ParameterLayout DelayAudioProcessor::createP
 {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
 
+    // Delay Time Parameter
     params.push_back (std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID { "DELAY_TIME", 1 }, "Delay Time", 
-        juce::NormalisableRange<float>(10.0f, 2000.0f, 1.0f, 0.4f), 250.0f, juce::String(), 
-        juce::AudioProcessorParameter::genericParameter, 
-        [](float val, int) { return juce::String(val, 0) + " ms"; }));
+        juce::ParameterID { "DELAY_TIME", 1 }, "Delay Time",
+        juce::NormalisableRange<float>(10.0f, 2000.0f, 1.0f, 0.4f), 250.0f,
+        juce::AudioParameterFloatAttributes().withStringFromValueFunction(
+            [](float val, int) { return juce::String(val, 0) + " ms"; })));
 
+    // Feedback Parameter
     params.push_back (std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID { "FEEDBACK", 1 }, "Feedback", 
-        juce::NormalisableRange<float>(0.0f, 0.95f, 0.01f), 0.4f, juce::String(), 
-        juce::AudioProcessorParameter::genericParameter, 
-        [](float val, int) { return juce::String (static_cast<int>(val * 100)) + " %"; }));
+        juce::ParameterID { "FEEDBACK", 1 }, "Feedback",
+        juce::NormalisableRange<float>(0.0f, 0.95f, 0.01f), 0.4f,
+        juce::AudioParameterFloatAttributes().withStringFromValueFunction(
+            [](float val, int) { return juce::String (static_cast<int>(val * 100)) + " %"; })));
 
+    // Mix Parameter
     params.push_back (std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID { "MIX", 1 }, "Mix", 
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f, juce::String(), 
-        juce::AudioProcessorParameter::genericParameter, 
-        [](float val, int) { return juce::String (static_cast<int>(val * 100)) + " %"; }));
+        juce::ParameterID { "MIX", 1 }, "Mix",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f,
+        juce::AudioParameterFloatAttributes().withStringFromValueFunction(
+            [](float val, int) { return juce::String (static_cast<int>(val * 100)) + " %"; })));
 
+    // Ping Pong Switch
     params.push_back (std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID { "PINGPONG", 1 }, "Ping Pong Mode", false));
 
+    // Ducking Parameter
     params.push_back (std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID { "DUCKING", 1 }, "Ducking", 
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f, juce::String(), 
-        juce::AudioProcessorParameter::genericParameter, 
-        [](float val, int) { return juce::String (static_cast<int>(val * 100)) + " %"; }));
+        juce::ParameterID { "DUCKING", 1 }, "Ducking",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f,
+        juce::AudioParameterFloatAttributes().withStringFromValueFunction(
+            [](float val, int) { return juce::String (static_cast<int>(val * 100)) + " %"; })));
 
+    // Color Drive Parameter
     params.push_back (std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID { "DRIVE", 1 }, "Color Drive", 
+        juce::ParameterID { "DRIVE", 1 }, "Color Drive",
         juce::NormalisableRange<float>(1.0f, 5.0f, 0.05f), 1.0f));
 
     return { params.begin(), params.end() };
