@@ -43,9 +43,8 @@ private:
     juce::AudioBuffer<float> delayBuffer;
     int writePosition { 0 };
 
-    // DSP Components (JUCE DSP Module)
-    juce::dsp::StateVariableFilter::Filter<float> hpFilter;
-    juce::dsp::StateVariableFilter::Filter<float> lpFilter;
+    juce::dsp::StateVariableTPTFilter<float> hpFilterL, hpFilterR;
+    juce::dsp::StateVariableTPTFilter<float> lpFilterL, lpFilterR;
     
     // Smoothers
     juce::LinearSmoothedValue<float> smoothedDelaySamples;
