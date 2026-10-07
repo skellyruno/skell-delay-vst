@@ -10,21 +10,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [windows-latest]
 
     steps:
     - name: Checkout repository recursively
       uses: actions/checkout@v4
       with:
         submodules: recursive
-
-    # Install Linux dependencies required by JUCE graphics/audio
-    - name: Install Linux Dependencies
-      if: runner.os == 'Linux'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libfreewtype6-dev libx11-dev libxext-dev libxinerama-dev \
-          libxrandr-dev libxcursor-dev libgl1-mesa-dev libasound2-dev
 
     - name: Configure CMake
       run: >
@@ -41,11 +33,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: VST3-Windows
-        path: build/DelayPlugin_artefacts/Release/VST3/*.vst3
-
-    - name: Upload macOS VST3 Artifact
-      if: runner.os == 'macOS'
-      uses: actions/upload-artifact@v4
-      with:
-        name: VST3-macOS
         path: build/DelayPlugin_artefacts/Release/VST3/*.vst3
