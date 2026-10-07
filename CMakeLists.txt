@@ -1,0 +1,49 @@
+cmake_minimum_required(VERSION 3.22)
+project(DelayPlugin VERSION 1.0.0 LANGUAGES C CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Fetch JUCE automatically via CMake
+include(FetchContent)
+FetchContent_Declare(
+    juce
+    GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
+    GIT_TAG        8.0.0 # Or 'master'
+)
+FetchContent_MakeAvailable(juce)
+
+# Define the Audio Plugin Target
+juce_add_plugin(DelayPlugin
+    COMPANY_NAME "MyAudioDev"
+    IS_SYNTH FALSE
+    NEEDS_MIDI_INPUT FALSE
+    NEEDS_MIDI_OUTPUT FALSE
+    IS_MIDI_EFFECT FALSE
+    EDITOR_WANTS_KEYBOARD_FOCUS FALSE
+    COPY_PLUGIN_AFTER_BUILD TRUE
+    PLUGIN_MANUFACTURER_CODE Mydv
+    PLUGIN_CODE Dlay
+    FORMATS VST3 AU
+    PRODUCT_NAME "Custom Delay"
+)
+
+# Source Files
+target_sources(DelayPlugin
+    PRIVATE
+        Source/PluginProcessor.h
+        Source/PluginProcessor.cpp
+        Source/PluginEditor.h
+        Source/PluginEditor.cpp
+)
+
+# Link JUCE Modules
+target_link_libraries(DelayPlugin
+    PRIVATE
+        juce::juce_audio_utils
+        juce::juce_dsp
+    PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_lto_flags
+        juce::juce_recommended_warning_flags
+)
