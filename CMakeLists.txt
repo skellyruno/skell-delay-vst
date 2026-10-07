@@ -4,16 +4,14 @@ project(DelayPlugin VERSION 1.0.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Fetch JUCE automatically via CMake
 include(FetchContent)
 FetchContent_Declare(
     juce
     GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
-    GIT_TAG        8.0.0 # Or 'master'
+    GIT_TAG        8.0.0
 )
 FetchContent_MakeAvailable(juce)
 
-# Define the Audio Plugin Target
 juce_add_plugin(DelayPlugin
     COMPANY_NAME "MyAudioDev"
     IS_SYNTH FALSE
@@ -28,7 +26,9 @@ juce_add_plugin(DelayPlugin
     PRODUCT_NAME "Custom Delay"
 )
 
-# Source Files
+# ADD THIS LINE: Tells JUCE CMake to generate JuceHeader.h
+juce_generate_juce_header(DelayPlugin)
+
 target_sources(DelayPlugin
     PRIVATE
         Source/PluginProcessor.h
@@ -37,7 +37,6 @@ target_sources(DelayPlugin
         Source/PluginEditor.cpp
 )
 
-# Link JUCE Modules
 target_link_libraries(DelayPlugin
     PRIVATE
         juce::juce_audio_utils
