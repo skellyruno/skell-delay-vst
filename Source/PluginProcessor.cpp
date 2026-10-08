@@ -30,16 +30,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout DelayAudioProcessor::createP
     params.push_back (std::make_unique<juce::AudioParameterFloat>(
         "SMOOTH", "Smoothing", juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 50.0f));
 
-    // TIME Range with 250ms (1/8 note) centered at 12 o'clock
+    // TIME range with 250ms (1/8 note) centered at 12 o'clock
     juce::NormalisableRange<float> timeRange (31.25f, 2000.0f, 0.1f);
     timeRange.setSkewForCentre (250.0f);
 
     params.push_back (std::make_unique<juce::AudioParameterFloat>(
         "DELAY_TIME", "Delay Time", timeRange, 250.0f));
 
-    // FEEDBACK default: 0.5 (50)
     params.push_back (std::make_unique<juce::AudioParameterFloat>(
-        "FEEDBACK", "Feedback", juce::NormalisableRange<float>(0.0f, 0.95f, 0.01f), 0.5f));
+        "FEEDBACK", "Feedback", juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
 
     params.push_back (std::make_unique<juce::AudioParameterFloat>(
         "DUCKING", "Ducking", juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
@@ -47,7 +46,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout DelayAudioProcessor::createP
     params.push_back (std::make_unique<juce::AudioParameterFloat>(
         "DRY", "Dry Level", juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
 
-    // WET default: 1.0 (100)
     params.push_back (std::make_unique<juce::AudioParameterFloat>(
         "WET", "Wet Level", juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
 
@@ -121,7 +119,7 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     const float panVal       = apvts.getRawParameterValue ("PAN")->load();
     const float smoothVal    = apvts.getRawParameterValue ("SMOOTH")->load();
     const float targetTimeMs = apvts.getRawParameterValue ("DELAY_TIME")->load();
-    const float feedbackVal  = apvts.getRawParameterValue ("FEEDBACK")->load();
+    const float feedbackVal  = juce::jmin (0.98f, apvts.getRawParameterValue ("FEEDBACK")->load());
     const float duckingVal   = apvts.getRawParameterValue ("DUCKING")->load();
     const float dryVal       = apvts.getRawParameterValue ("DRY")->load();
     const float wetVal       = apvts.getRawParameterValue ("WET")->load();
