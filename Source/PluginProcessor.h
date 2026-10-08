@@ -1,7 +1,8 @@
 #pragma once
+
 #include <JuceHeader.h>
 
-class DelayAudioProcessor : public juce::AudioProcessor
+class DelayAudioProcessor  : public juce::AudioProcessor
 {
 public:
     DelayAudioProcessor();
@@ -9,59 +10,47 @@ public:
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
+
+#ifndef JucePlugin_PreferredChannelConfigurations
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
+#endif
+
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
     juce::AudioProcessorEditor* createEditor() override;
-    bool hasEditor() const override { return true; }
+    bool hasEditor() const override;
 
-    const juce::String getName() const override { return JucePlugin_Name; }
-    bool acceptsMidi() const override { return false; }
-    bool producesMidi() const override { return false; }
-    bool isMidiEffect() const override { return false; }
-    double getTailLengthSeconds() const override { return 0.0; }
+    const juce::String getName() const override;
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return {}; }
-    void changeProgramName (int, const juce::String&) override {}
+    bool acceptsMidi() const override;
+    bool producesMidi() const override;
+    bool isMidiEffect() const override;
+    double getTailLengthSeconds() const override;
+
+    int getNumPrograms() override;
+    int getCurrentProgram() override;
+    void setCurrentProgram (int index) override;
+    const juce::String getProgramName (int index) override;
+    void changeProgramName (int index, const juce::String& newName) override;
 
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
-    float getLeftLevel() const { return leftLevel.get(); }
-    float getRightLevel() const { return rightLevel.get(); }
+    float getLeftLevel() const;
+    float getRightLevel() const;
 
     juce::AudioProcessorValueTreeState apvts;
 
 private:
-    static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
-    static float getInterpolatedSample (const float* buffer, int bufferLength, float readPosition);
+    juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     juce::AudioBuffer<float> delayBuffer;
     int writePosition = 0;
+    double sampleRate = 44100.0;
 
-    // Fast atomic parameter caches
-    std::atomic<float>* panParam      = nullptr;
-    std::atomic<float>* smoothParam   = nullptr;
-    std::atomic<float>* timeParam     = nullptr;
-    std::atomic<float>* feedbackParam = nullptr;
-    std::atomic<float>* duckingParam  = nullptr;
-    std::atomic<float>* dryParam      = nullptr;
-    std::atomic<float>* wetParam      = nullptr;
-    std::atomic<float>* pingPongParam = nullptr;
-    std::atomic<float>* modeParam     = nullptr;
+    juce::LinearSmoothedValue<float> smoothDelayTime;
+    float duckEnvelope = 0.0f;
 
-    juce::LinearSmoothedValue<float> smoothedDelaySamples;
-    juce::LinearSmoothedValue<float> smoothedFeedback;
-    juce::LinearSmoothedValue<float> smoothedDry;
-    juce::LinearSmoothedValue<float> smoothedWet;
-
-    juce::dsp::StateVariableTPTFilter<float> hpFilterL, hpFilterR;
-    juce::dsp::StateVariableTPTFilter<float> lpFilterL, lpFilterR;
-
-    float duckingEnv = 0.0f;
     juce::Atomic<float> leftLevel { 0.0f };
     juce::Atomic<float> rightLevel { 0.0f };
 
