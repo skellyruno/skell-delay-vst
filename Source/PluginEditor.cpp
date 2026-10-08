@@ -41,6 +41,7 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     auto setupKnob = [this](juce::Slider& s, juce::Label& l, const juce::String& text) {
         s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
         s.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+        s.onValueChange = [&s]() { s.repaint(); };
         addAndMakeVisible (s);
 
         l.setText (text, juce::dontSendNotification);
@@ -50,12 +51,41 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
         addAndMakeVisible (l);
     };
 
+    // Format centered text readouts inside knob centers
+    panSlider.textFromValueFunction = [](double v) {
+        if (std::abs (v) < 0.05) return juce::String ("C");
+        if (v < 0) return "L" + juce::String (juce::roundToInt (std::abs (v) * 100));
+        return "R" + juce::String (juce::roundToInt (v * 100));
+    };
+
+    smoothSlider.textFromValueFunction = [](double v) {
+        return juce::String (juce::roundToInt (v)) + "ms";
+    };
+
+    timeSlider.textFromValueFunction = [](double v) {
+        return getTimeFractionString (static_cast<float>(v));
+    };
+
+    feedbackSlider.textFromValueFunction = [](double v) {
+        return juce::String (juce::roundToInt (v * 100.0)) + "%";
+    };
+
+    duckingSlider.textFromValueFunction = [](double v) {
+        return juce::String (juce::roundToInt (v * 100.0)) + "%";
+    };
+
+    drySlider.textFromValueFunction = [](double v) {
+        return juce::String (juce::roundToInt (v * 100.0)) + "%";
+    };
+
+    wetSlider.textFromValueFunction = [](double v) {
+        return juce::String (juce::roundToInt (v * 100.0)) + "%";
+    };
+
     setupKnob (panSlider, panLabel, "PAN");
     setupKnob (smoothSlider, smoothLabel, "SMOOTH");
-
     setupKnob (timeSlider, timeLabel, "TIME");
     setupKnob (feedbackSlider, feedbackLabel, "FEEDBACK");
-
     setupKnob (duckingSlider, duckingLabel, "DUCKING");
     setupKnob (drySlider, dryLabel, "DRY");
     setupKnob (wetSlider, wetLabel, "WET");
@@ -95,14 +125,13 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     timeSlider.onValueChange = [this]() {
         float ms = static_cast<float>(timeSlider.getValue());
         delayDisplay.setText (getTimeFractionString (ms));
+        timeSlider.repaint();
     };
 
     int currentMode = static_cast<int>(audioProcessor.apvts.getRawParameterValue ("MODE")->load());
     updateModeButtons (currentMode);
 
     startTimerHz (30);
-
-    // Scaled down 15% from 750x240 -> 638x204
     setSize (638, 204);
 }
 
@@ -139,7 +168,6 @@ void DelayAudioProcessorEditor::paint (juce::Graphics& g)
 
 void DelayAudioProcessorEditor::resized()
 {
-    // Proportional layout coordinates scaled ~15% down
     leftMeter.setBounds (8, 38, 9, 128);
     rightMeter.setBounds (621, 38, 9, 128);
 
