@@ -171,6 +171,8 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         if (++writePosition >= bufferLength)
             writePosition = 0;
     }
+    leftLevel.set  (buffer.getMagnitude (0, 0, numSamples));
+    rightLevel.set (buffer.getMagnitude (1, 0, numSamples));
 }
 
 float DelayAudioProcessor::getInterpolatedSample(const float* buffer, int bufferLength, float readPosition)
