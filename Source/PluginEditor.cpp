@@ -51,15 +51,13 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
         addAndMakeVisible (l);
     };
 
-    // Format centered text readouts inside knob centers
+    // Format all knob readouts to 0-100 scale (and 1/8 note fraction for TIME)
     panSlider.textFromValueFunction = [](double v) {
-        if (std::abs (v) < 0.05) return juce::String ("C");
-        if (v < 0) return "L" + juce::String (juce::roundToInt (std::abs (v) * 100));
-        return "R" + juce::String (juce::roundToInt (v * 100));
+        return juce::String (juce::roundToInt ((v + 1.0) * 50.0));
     };
 
     smoothSlider.textFromValueFunction = [](double v) {
-        return juce::String (juce::roundToInt (v)) + "ms";
+        return juce::String (juce::roundToInt (v));
     };
 
     timeSlider.textFromValueFunction = [](double v) {
@@ -67,19 +65,19 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     };
 
     feedbackSlider.textFromValueFunction = [](double v) {
-        return juce::String (juce::roundToInt (v * 100.0)) + "%";
+        return juce::String (juce::roundToInt (v * 100.0));
     };
 
     duckingSlider.textFromValueFunction = [](double v) {
-        return juce::String (juce::roundToInt (v * 100.0)) + "%";
+        return juce::String (juce::roundToInt (v * 100.0));
     };
 
     drySlider.textFromValueFunction = [](double v) {
-        return juce::String (juce::roundToInt (v * 100.0)) + "%";
+        return juce::String (juce::roundToInt (v * 100.0));
     };
 
     wetSlider.textFromValueFunction = [](double v) {
-        return juce::String (juce::roundToInt (v * 100.0)) + "%";
+        return juce::String (juce::roundToInt (v * 100.0));
     };
 
     setupKnob (panSlider, panLabel, "PAN");
@@ -168,36 +166,44 @@ void DelayAudioProcessorEditor::paint (juce::Graphics& g)
 
 void DelayAudioProcessorEditor::resized()
 {
-    leftMeter.setBounds (8, 38, 9, 128);
-    rightMeter.setBounds (621, 38, 9, 128);
+    // Meters aligned cleanly with outer borders
+    leftMeter.setBounds (10, 38, 8, 128);
+    rightMeter.setBounds (620, 38, 8, 128);
 
-    panSlider.setBounds (41, 75, 48, 48);
-    panLabel.setBounds (32, 126, 65, 14);
+    // Left Small Knobs (48x48)
+    panSlider.setBounds (40, 72, 48, 48);
+    panLabel.setBounds (32, 124, 64, 14);
 
-    smoothSlider.setBounds (102, 75, 48, 48);
-    smoothLabel.setBounds (94, 126, 65, 14);
+    smoothSlider.setBounds (104, 72, 48, 48);
+    smoothLabel.setBounds (96, 124, 64, 14);
 
-    delayDisplay.setBounds (277, 64, 84, 22);
+    // Large TIME Knob (72x72)
+    timeSlider.setBounds (176, 64, 72, 72);
+    timeLabel.setBounds (180, 140, 64, 14);
 
-    digitalBtn.setBounds (268, 91, 32, 13);
-    analogBtn.setBounds (303, 91, 32, 13);
-    tapeBtn.setBounds (338, 91, 32, 13);
+    // Center Display Section
+    delayDisplay.setBounds (269, 62, 100, 24);
 
-    pingPongButton.setBounds (311, 108, 15, 15);
-    pingPongLabel.setBounds (277, 125, 84, 13);
+    // Expanded Mode Buttons (38px width each -> DIGITAL, ANALOG, TAPE fit without truncation)
+    digitalBtn.setBounds (260, 90, 38, 15);
+    analogBtn.setBounds (300, 90, 38, 15);
+    tapeBtn.setBounds (340, 90, 38, 15);
 
-    timeSlider.setBounds (182, 68, 73, 73);
-    timeLabel.setBounds (186, 144, 65, 14);
+    // Ping Pong Checkbox & Label
+    pingPongButton.setBounds (311, 108, 16, 16);
+    pingPongLabel.setBounds (269, 125, 100, 14);
 
-    feedbackSlider.setBounds (381, 68, 73, 73);
-    feedbackLabel.setBounds (385, 144, 65, 14);
+    // Large FEEDBACK Knob (72x72)
+    feedbackSlider.setBounds (390, 64, 72, 72);
+    feedbackLabel.setBounds (394, 140, 64, 14);
 
-    duckingSlider.setBounds (468, 77, 44, 44);
-    duckingLabel.setBounds (459, 126, 64, 14);
+    // Right Small Knobs (Symmetrical 48x48 at Y=72)
+    duckingSlider.setBounds (482, 72, 48, 48);
+    duckingLabel.setBounds (474, 124, 64, 14);
 
-    drySlider.setBounds (519, 77, 44, 44);
-    dryLabel.setBounds (510, 126, 64, 14);
+    drySlider.setBounds (534, 72, 48, 48);
+    dryLabel.setBounds (526, 124, 64, 14);
 
-    wetSlider.setBounds (570, 77, 44, 44);
-    wetLabel.setBounds (561, 126, 64, 14);
+    wetSlider.setBounds (586, 72, 48, 48);
+    wetLabel.setBounds (578, 124, 64, 14);
 }
