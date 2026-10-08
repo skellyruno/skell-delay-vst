@@ -44,7 +44,7 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
         addAndMakeVisible (s);
 
         l.setText (text, juce::dontSendNotification);
-        l.setFont (juce::FontOptions (11.5f).withStyle ("Bold Italic"));
+        l.setFont (juce::FontOptions (10.0f).withStyle ("Bold Italic"));
         l.setColour (juce::Label::textColourId, juce::Colour (0xff00ff66));
         l.setJustificationType (juce::Justification::centred);
         addAndMakeVisible (l);
@@ -62,7 +62,7 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
 
     addAndMakeVisible (pingPongButton);
     pingPongLabel.setText ("PING PONG", juce::dontSendNotification);
-    pingPongLabel.setFont (juce::FontOptions (10.0f).withStyle ("Bold Italic"));
+    pingPongLabel.setFont (juce::FontOptions (8.5f).withStyle ("Bold Italic"));
     pingPongLabel.setColour (juce::Label::textColourId, juce::Colour (0xff00ff66));
     pingPongLabel.setJustificationType (juce::Justification::centred);
     addAndMakeVisible (pingPongLabel);
@@ -101,7 +101,9 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     updateModeButtons (currentMode);
 
     startTimerHz (30);
-    setSize (750, 240);
+
+    // Scaled down 15% from 750x240 -> 638x204
+    setSize (638, 204);
 }
 
 DelayAudioProcessorEditor::~DelayAudioProcessorEditor()
@@ -137,36 +139,37 @@ void DelayAudioProcessorEditor::paint (juce::Graphics& g)
 
 void DelayAudioProcessorEditor::resized()
 {
-    leftMeter.setBounds (9, 45, 11, 150);
-    rightMeter.setBounds (730, 45, 11, 150);
+    // Proportional layout coordinates scaled ~15% down
+    leftMeter.setBounds (8, 38, 9, 128);
+    rightMeter.setBounds (621, 38, 9, 128);
 
-    panSlider.setBounds (48, 88, 56, 56);
-    panLabel.setBounds (38, 148, 76, 16);
+    panSlider.setBounds (41, 75, 48, 48);
+    panLabel.setBounds (32, 126, 65, 14);
 
-    smoothSlider.setBounds (120, 88, 56, 56);
-    smoothLabel.setBounds (110, 148, 76, 16);
+    smoothSlider.setBounds (102, 75, 48, 48);
+    smoothLabel.setBounds (94, 126, 65, 14);
 
-    delayDisplay.setBounds (326, 75, 98, 26);
+    delayDisplay.setBounds (277, 64, 84, 22);
 
-    digitalBtn.setBounds (315, 107, 38, 15);
-    analogBtn.setBounds (356, 107, 38, 15);
-    tapeBtn.setBounds (397, 107, 38, 15);
+    digitalBtn.setBounds (268, 91, 32, 13);
+    analogBtn.setBounds (303, 91, 32, 13);
+    tapeBtn.setBounds (338, 91, 32, 13);
 
-    pingPongButton.setBounds (366, 127, 18, 18);
-    pingPongLabel.setBounds (326, 147, 98, 15);
+    pingPongButton.setBounds (311, 108, 15, 15);
+    pingPongLabel.setBounds (277, 125, 84, 13);
 
-    timeSlider.setBounds (214, 80, 86, 86);
-    timeLabel.setBounds (219, 169, 76, 16);
+    timeSlider.setBounds (182, 68, 73, 73);
+    timeLabel.setBounds (186, 144, 65, 14);
 
-    feedbackSlider.setBounds (448, 80, 86, 86);
-    feedbackLabel.setBounds (453, 169, 76, 16);
+    feedbackSlider.setBounds (381, 68, 73, 73);
+    feedbackLabel.setBounds (385, 144, 65, 14);
 
-    duckingSlider.setBounds (551, 90, 52, 52);
-    duckingLabel.setBounds (540, 148, 75, 16);
+    duckingSlider.setBounds (468, 77, 44, 44);
+    duckingLabel.setBounds (459, 126, 64, 14);
 
-    drySlider.setBounds (611, 90, 52, 52);
-    dryLabel.setBounds (600, 148, 75, 16);
+    drySlider.setBounds (519, 77, 44, 44);
+    dryLabel.setBounds (510, 126, 64, 14);
 
-    wetSlider.setBounds (671, 90, 52, 52);
-    wetLabel.setBounds (660, 148, 75, 16);
+    wetSlider.setBounds (570, 77, 44, 44);
+    wetLabel.setBounds (561, 126, 64, 14);
 }
