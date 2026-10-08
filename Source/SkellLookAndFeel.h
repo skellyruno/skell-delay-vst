@@ -84,7 +84,12 @@ public:
 
         g.setFont (juce::FontOptions (fontSize).withStyle ("Bold"));
         g.setColour (isInteracting ? juce::Colour (0xffffffff) : juce::Colour (0xff00ff66));
-        g.drawText (valText, capX, capY, capW, capW, juce::Justification::centred, false);
+
+        juce::Rectangle<int> textBounds (juce::roundToInt (capX),
+                                         juce::roundToInt (capY),
+                                         juce::roundToInt (capW),
+                                         juce::roundToInt (capW));
+        g.drawText (valText, textBounds, juce::Justification::centred, false);
     }
 
     void drawToggleButton (juce::Graphics& g, juce::ToggleButton& button,
