@@ -44,8 +44,15 @@ target_sources(DelayPlugin
         Source/PluginEditor.cpp
 )
 
+# Add BinaryData for assets
+juce_add_binary_data(DelayAssets
+    SOURCES
+        Source/Assets/skell_bg.png
+)
+
 target_link_libraries(DelayPlugin
     PRIVATE
+        DelayAssets
         juce::juce_audio_utils
         juce::juce_dsp
     PUBLIC
