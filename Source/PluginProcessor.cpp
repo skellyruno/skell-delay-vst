@@ -15,6 +15,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout DelayAudioProcessor::createP
 {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
 
+    // Pan (-1.0 to 1.0)
+    params.push_back (std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID { "PAN", 1 }, "Pan",
+        juce::NormalisableRange<float>(-1.0f, 1.0f, 0.01f), 0.0f));
+
+    // Smooth Time (5ms to 200ms)
+    params.push_back (std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID { "SMOOTH", 1 }, "Time Smooth",
+        juce::NormalisableRange<float>(5.0f, 200.0f, 1.0f, 0.5f), 50.0f));
+
     // Delay Time (ms)
     params.push_back (std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID { "DELAY_TIME", 1 }, "Delay Time",
@@ -25,34 +35,26 @@ juce::AudioProcessorValueTreeState::ParameterLayout DelayAudioProcessor::createP
         juce::ParameterID { "FEEDBACK", 1 }, "Feedback",
         juce::NormalisableRange<float>(0.0f, 0.95f, 0.01f), 0.4f));
 
-    // Mix (Dry/Wet)
+    // Ducking (0.0 to 1.0)
     params.push_back (std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID { "MIX", 1 }, "Mix",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
+        juce::ParameterID { "DUCKING", 1 }, "Ducking",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
 
-    // Pan & Volume
+    // Dry Level (0.0 to 1.0)
     params.push_back (std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID { "PAN", 1 }, "Pan",
-        juce::NormalisableRange<float>(-1.0f, 1.0f, 0.01f), 0.0f));
-
-    params.push_back (std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID { "VOL", 1 }, "Volume",
-        juce::NormalisableRange<float>(0.0f, 2.0f, 0.01f), 1.0f));
-
-    // Mixer & Hi-Cut
-    params.push_back (std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID { "MIXER", 1 }, "Mixer",
+        juce::ParameterID { "DRY", 1 }, "Dry",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
 
+    // Wet Level (0.0 to 1.0)
     params.push_back (std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID { "HICUT", 1 }, "Hi-Cut",
-        juce::NormalisableRange<float>(1000.0f, 20000.0f, 10.0f, 0.3f), 8000.0f));
+        juce::ParameterID { "WET", 1 }, "Wet",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
 
     // Ping Pong Switch
     params.push_back (std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID { "PINGPONG", 1 }, "Ping Pong Mode", false));
 
-    // Delay Mode: 0 = Digital, 1 = Analog, 2 = Tape
+    // Mode: Digital (0), Analog (1), Tape (2)
     params.push_back (std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID { "MODE", 1 }, "Delay Mode",
         juce::StringArray { "Digital", "Analog", "Tape" }, 0));
@@ -69,7 +71,8 @@ void DelayAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 
     smoothedDelaySamples.reset (sampleRate, 0.05);
     smoothedFeedback.reset (sampleRate, 0.02);
-    smoothedMix.reset (sampleRate, 0.02);
+    smoothedDry.reset (sampleRate, 0.02);
+    smoothedWet.reset (sampleRate, 0.02);
 
     juce::dsp::ProcessSpec spec { sampleRate, static_cast<juce::uint32>(samplesPerBlock), 1 };
 
@@ -102,33 +105,35 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     const int bufferLength = delayBuffer.getNumSamples();
     const double sr = getSampleRate();
 
+    // Fetch parameters
+    float smoothMs = apvts.getRawParameterValue ("SMOOTH")->load();
+    smoothedDelaySamples.reset (sr, smoothMs / 1000.0f); // Dynamic time smoothing
+
     float timeMs = apvts.getRawParameterValue ("DELAY_TIME")->load();
     smoothedDelaySamples.setTargetValue ((timeMs / 1000.0f) * static_cast<float>(sr));
-    smoothedFeedback.setTargetValue (apvts.getRawParameterValue ("FEEDBACK")->load());
-    smoothedMix.setTargetValue (apvts.getRawParameterValue ("MIX")->load());
 
+    smoothedFeedback.setTargetValue (apvts.getRawParameterValue ("FEEDBACK")->load());
+    smoothedDry.setTargetValue (apvts.getRawParameterValue ("DRY")->load());
+    smoothedWet.setTargetValue (apvts.getRawParameterValue ("WET")->load());
+
+    const float pan = apvts.getRawParameterValue ("PAN")->load();
+    const float duckingAmount = apvts.getRawParameterValue ("DUCKING")->load();
     const bool isPingPong = apvts.getRawParameterValue ("PINGPONG")->load() > 0.5f;
     const int mode = static_cast<int>(apvts.getRawParameterValue ("MODE")->load());
-    const float hiCutFreq = apvts.getRawParameterValue ("HICUT")->load();
-    const float vol = apvts.getRawParameterValue ("VOL")->load();
 
-    // Mode-specific character adjustments
-    float cutoff = hiCutFreq;
+    // Mode Filter & Saturation Curve Setup
+    float cutoff = 12000.0f;
     float drive = 1.0f;
 
-    if (mode == 1) // Analog Mode: Warmer, rolled-off high end, mild drive
-    {
-        cutoff = juce::jmin (hiCutFreq, 5500.0f);
-        drive = 1.4f;
-    }
-    else if (mode == 2) // Tape Mode: Darker, rich saturation
-    {
-        cutoff = juce::jmin (hiCutFreq, 3800.0f);
-        drive = 2.0f;
-    }
+    if (mode == 1)      { cutoff = 5500.0f; drive = 1.4f; } // Analog
+    else if (mode == 2) { cutoff = 3800.0f; drive = 2.0f; } // Tape
 
     lpFilterL.setCutoffFrequency (cutoff);
     lpFilterR.setCutoffFrequency (cutoff);
+
+    // Pan calculation
+    float panL = std::cos ((pan + 1.0f) * juce::MathConstants<float>::quarterPi);
+    float panR = std::sin ((pan + 1.0f) * juce::MathConstants<float>::quarterPi);
 
     auto* mainLeft  = buffer.getWritePointer (0);
     auto* mainRight = buffer.getWritePointer (1);
@@ -140,7 +145,14 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     {
         const float currentDelaySamples = smoothedDelaySamples.getNextValue();
         const float currentFeedback     = smoothedFeedback.getNextValue();
-        const float currentMix          = smoothedMix.getNextValue();
+        const float currentDry          = smoothedDry.getNextValue();
+        const float currentWet          = smoothedWet.getNextValue();
+
+        // Calculate Envelope for Ducking (Baby Comeback Style)
+        float inPeak = (std::abs (mainLeft[sample]) + std::abs (mainRight[sample])) * 0.5f;
+        duckingEnv += (inPeak - duckingEnv) * (inPeak > duckingEnv ? 0.01f : 0.0005f); // Fast attack, smooth release
+        float duckGain = 1.0f - (duckingEnv * duckingAmount);
+        duckGain = juce::jlimit (0.0f, 1.0f, duckGain);
 
         float readPosL = static_cast<float>(writePosition) - currentDelaySamples;
         if (readPosL < 0.0f) readPosL += static_cast<float>(bufferLength);
@@ -156,15 +168,17 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         float feedL = isPingPong ? wetR : wetL;
         float feedR = isPingPong ? wetL : wetR;
 
-        // Apply saturation curve based on Mode
         feedL = std::tanh (feedL * drive) * currentFeedback;
         feedR = std::tanh (feedR * drive) * currentFeedback;
 
-        delayLeft[writePosition]  = mainLeft[sample] + feedL;
-        delayRight[writePosition] = mainRight[sample] + feedR;
+        delayLeft[writePosition]  = (mainLeft[sample]  * panL) + feedL;
+        delayRight[writePosition] = (mainRight[sample] * panR) + feedR;
 
-        mainLeft[sample]  = ((mainLeft[sample]  * (1.0f - currentMix)) + (wetL * currentMix)) * vol;
-        mainRight[sample] = ((mainRight[sample] * (1.0f - currentMix)) + (wetR * currentMix)) * vol;
+        float finalWetL = wetL * duckGain * currentWet;
+        float finalWetR = wetR * duckGain * currentWet;
+
+        mainLeft[sample]  = (mainLeft[sample]  * currentDry) + finalWetL;
+        mainRight[sample] = (mainRight[sample] * currentDry) + finalWetR;
 
         if (++writePosition >= bufferLength)
             writePosition = 0;
