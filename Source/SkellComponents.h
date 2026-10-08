@@ -1,7 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
 
-// --- Custom LED Meter Component ---
 class SkellMeter : public juce::Component
 {
 public:
@@ -28,7 +27,6 @@ public:
             float yPos = bounds.getBottom() - ((i + 1) * (segHeight + gap));
             bool isLit = i < litSegments;
 
-            // Green LEDs with top red peak
             juce::Colour ledColour = (i > 15) ? juce::Colour (0xffff3333) : juce::Colour (0xff00ff66);
             g.setColour (isLit ? ledColour : ledColour.withAlpha (0.15f));
             g.fillRect (bounds.getX() + 2.0f, yPos, bounds.getWidth() - 4.0f, segHeight);
@@ -39,7 +37,6 @@ private:
     float level = 0.0f;
 };
 
-// --- Custom LCD Screen Display ---
 class SkellDisplay : public juce::Component
 {
 public:
@@ -53,15 +50,13 @@ public:
     {
         auto bounds = getLocalBounds().toFloat();
 
-        // Dark bevel frame
         g.setColour (juce::Colour (0xff050805));
         g.fillRoundedRectangle (bounds, 4.0f);
         g.setColour (juce::Colour (0xff00ff66).withAlpha (0.4f));
         g.drawRoundedRectangle (bounds, 4.0f, 1.5f);
 
-        // Glowing Neon Text
         g.setColour (juce::Colour (0xff00ff66));
-        g.setFont (juce::Font (20.0f, juce::Font::bold | juce::Font::italic));
+        g.setFont (juce::FontOptions (20.0f).withStyle ("Bold").withItalic (true));
         g.drawText (displayText, bounds, juce::Justification::centred, true);
     }
 
