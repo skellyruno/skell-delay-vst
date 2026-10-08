@@ -2,7 +2,7 @@
 
 #include <JuceHeader.h>
 
-class DelayAudioProcessor : public juce::AudioProcessor
+class DelayAudioProcessor  : public juce::AudioProcessor
 {
 public:
     DelayAudioProcessor();
@@ -23,7 +23,7 @@ public:
     bool acceptsMidi() const override { return false; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
-    double getTailLengthSeconds() const override { return 2.0; }
+    double getTailLengthSeconds() const override { return 0.0; }
 
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
@@ -34,27 +34,36 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
+    // Peak level meters read by PluginEditor timer
+    float getLeftLevel()  const { return leftLevel.get(); }
+    float getRightLevel() const { return rightLevel.get(); }
+
     juce::AudioProcessorValueTreeState apvts;
 
 private:
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
-    
-    // Circular Delay Buffer
-    juce::AudioBuffer<float> delayBuffer;
-    int writePosition { 0 };
 
-    juce::dsp::StateVariableTPTFilter<float> hpFilterL, hpFilterR;
-    juce::dsp::StateVariableTPTFilter<float> lpFilterL, lpFilterR;
-    
-    // Smoothers
+    // Audio Buffer & State
+    juce::AudioBuffer<float> delayBuffer;
+    int writePosition = 0;
+
+    // Parameter Smoothers
     juce::LinearSmoothedValue<float> smoothedDelaySamples;
     juce::LinearSmoothedValue<float> smoothedFeedback;
     juce::LinearSmoothedValue<float> smoothedMix;
-    
-    // Ducking envelope tracker
-    float duckingEnv { 0.0f };
 
-    float getInterpolatedSample(const float* buffer, int bufferLength, float readPosition);
+    // Feedback Loop Filters
+    juce::dsp::StateVariableTPTFilter<float> hpFilterL, hpFilterR;
+    juce::dsp::StateVariableTPTFilter<float> lpFilterL, lpFilterR;
+
+    // Ducking State
+    float duckingEnv = 0.0f;
+
+    // Thread-safe level tracking for GUI meters
+    juce::Atomic<float> leftLevel { 0.0f };
+    juce::Atomic<float> rightLevel { 0.0f };
+
+    float getInterpolatedSample (const float* buffer, int bufferLength, float readPosition);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DelayAudioProcessor)
 };
