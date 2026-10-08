@@ -18,7 +18,7 @@ public:
     {
         juce::ignoreUnused (slider);
 
-        auto radius = (float) juce::jmin (width, height) / 2.0f - 3.0f;
+        auto radius = (float) juce::jmin (width, height) / 2.0f - 2.5f;
         auto centreX = (float) x + (float) width  * 0.5f;
         auto centreY = (float) y + (float) height * 0.5f;
         auto rx = centreX - radius;
@@ -30,13 +30,13 @@ public:
         g.fillEllipse (rx, ry, rw, rw);
 
         g.setColour (juce::Colour (0xff1e291e));
-        g.drawEllipse (rx, ry, rw, rw, 1.5f);
+        g.drawEllipse (rx, ry, rw, rw, 1.25f);
 
         g.setColour (juce::Colour (0xff00ff66).withAlpha (0.25f));
-        g.drawEllipse (rx + 2, ry + 2, rw - 4, rw - 4, 1.0f);
+        g.drawEllipse (rx + 1.5f, ry + 1.5f, rw - 3.0f, rw - 3.0f, 1.0f);
 
         juce::Path p;
-        p.addRectangle (-1.25f, -radius + 3.0f, 2.5f, radius * 0.65f);
+        p.addRectangle (-1.0f, -radius + 2.5f, 2.0f, radius * 0.65f);
         p.applyTransform (juce::AffineTransform::rotation (angle).translated (centreX, centreY));
 
         g.setColour (juce::Colour (0xff00ff66));
@@ -51,23 +51,23 @@ public:
         juce::ignoreUnused (backgroundColour, shouldDrawButtonAsHighlighted, shouldDrawButtonAsDown);
 
         auto bounds = button.getLocalBounds().toFloat().reduced (1.0f);
-        bool isActive = button.getToggleState();
+        const bool isActive = button.getToggleState();
 
         if (isActive)
         {
             g.setColour (juce::Colour (0xff00ff66));
-            g.fillRoundedRectangle (bounds, 3.0f);
+            g.fillRoundedRectangle (bounds, 2.5f);
 
             g.setColour (juce::Colour (0xff00ff66).withAlpha (0.5f));
-            g.drawRoundedRectangle (bounds.expanded (1.5f), 4.0f, 1.5f);
+            g.drawRoundedRectangle (bounds.expanded (1.0f), 3.0f, 1.25f);
         }
         else
         {
             g.setColour (juce::Colour (0xff0d120d));
-            g.fillRoundedRectangle (bounds, 3.0f);
+            g.fillRoundedRectangle (bounds, 2.5f);
 
             g.setColour (juce::Colour (0xff004411));
-            g.drawRoundedRectangle (bounds, 3.0f, 1.0f);
+            g.drawRoundedRectangle (bounds, 2.5f, 1.0f);
         }
     }
 
@@ -76,10 +76,10 @@ public:
     {
         juce::ignoreUnused (shouldDrawButtonAsHighlighted, shouldDrawButtonAsDown);
 
-        bool isActive = button.getToggleState();
+        const bool isActive = button.getToggleState();
 
         g.setColour (isActive ? juce::Colour (0xff050805) : juce::Colour (0xff00aa44));
-        g.setFont (juce::FontOptions (10.0f).withStyle ("Bold"));
+        g.setFont (juce::FontOptions (8.5f).withStyle ("Bold"));
         g.drawText (button.getButtonText(), button.getLocalBounds(), juce::Justification::centred, true);
     }
 };
