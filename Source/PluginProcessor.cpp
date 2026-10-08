@@ -105,9 +105,8 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     const int bufferLength = delayBuffer.getNumSamples();
     const double sr = getSampleRate();
 
-    // Fetch parameters
     float smoothMs = apvts.getRawParameterValue ("SMOOTH")->load();
-    smoothedDelaySamples.reset (sr, smoothMs / 1000.0f); // Dynamic time smoothing
+    smoothedDelaySamples.reset (sr, smoothMs / 1000.0f);
 
     float timeMs = apvts.getRawParameterValue ("DELAY_TIME")->load();
     smoothedDelaySamples.setTargetValue ((timeMs / 1000.0f) * static_cast<float>(sr));
@@ -121,19 +120,19 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     const bool isPingPong = apvts.getRawParameterValue ("PINGPONG")->load() > 0.5f;
     const int mode = static_cast<int>(apvts.getRawParameterValue ("MODE")->load());
 
-    // Mode Filter & Saturation Curve Setup
     float cutoff = 12000.0f;
     float drive = 1.0f;
 
-    if (mode == 1)      { cutoff = 5500.0f; drive = 1.4f; } // Analog
-    else if (mode == 2) { cutoff = 3800.0f; drive = 2.0f; } // Tape
+    if (mode == 1)      { cutoff = 5500.0f; drive = 1.4f; }
+    else if (mode == 2) { cutoff = 3800.0f; drive = 2.0f; }
 
     lpFilterL.setCutoffFrequency (cutoff);
     lpFilterR.setCutoffFrequency (cutoff);
 
-    // Pan calculation
-    float panL = std::cos ((pan + 1.0f) * juce::MathConstants<float>::quarterPi);
-    float panR = std::sin ((pan + 1.0f) * juce::MathConstants<float>::quarterPi);
+    // Constant power panning constant (pi / 4)
+    constexpr float quarterPi = juce::MathConstants<float>::pi * 0.25f;
+    float panL = std::cos ((pan + 1.0f) * quarterPi);
+    float panR = std::sin ((pan + 1.0f) * quarterPi);
 
     auto* mainLeft  = buffer.getWritePointer (0);
     auto* mainRight = buffer.getWritePointer (1);
@@ -148,9 +147,8 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         const float currentDry          = smoothedDry.getNextValue();
         const float currentWet          = smoothedWet.getNextValue();
 
-        // Calculate Envelope for Ducking (Baby Comeback Style)
         float inPeak = (std::abs (mainLeft[sample]) + std::abs (mainRight[sample])) * 0.5f;
-        duckingEnv += (inPeak - duckingEnv) * (inPeak > duckingEnv ? 0.01f : 0.0005f); // Fast attack, smooth release
+        duckingEnv += (inPeak - duckingEnv) * (inPeak > duckingEnv ? 0.01f : 0.0005f);
         float duckGain = 1.0f - (duckingEnv * duckingAmount);
         duckGain = juce::jlimit (0.0f, 1.0f, duckGain);
 
