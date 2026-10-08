@@ -6,7 +6,6 @@ class SkellLookAndFeel : public juce::LookAndFeel_V4
 public:
     SkellLookAndFeel()
     {
-        // Vivid Lime Green palette (#39FF14)
         setColour (juce::Slider::rotarySliderFillColourId, juce::Colour (0xff39ff14));
         setColour (juce::Slider::thumbColourId, juce::Colour (0xff39ff14));
         setColour (juce::Label::textColourId, juce::Colour (0xff39ff14));
@@ -79,18 +78,21 @@ public:
         g.setColour (isInteracting ? juce::Colour (0xffffffff) : juce::Colour (0xff39ff14));
         g.fillPath (p);
 
-        // 5. Centered Readout Value
-        juce::String valText = slider.getTextFromValue (slider.getValue());
-        float fontSize = juce::jlimit (9.0f, 14.0f, capRadius * 0.70f);
+        // 5. Centered Value Readout (Only displayed when actively hovering/turning)
+        if (isInteracting)
+        {
+            juce::String valText = slider.getTextFromValue (slider.getValue());
+            float fontSize = juce::jlimit (9.0f, 14.0f, capRadius * 0.70f);
 
-        g.setFont (juce::FontOptions (fontSize).withStyle ("Bold"));
-        g.setColour (isInteracting ? juce::Colour (0xffffffff) : juce::Colour (0xff39ff14));
+            g.setFont (juce::FontOptions (fontSize).withStyle ("Bold"));
+            g.setColour (juce::Colour (0xffffffff));
 
-        juce::Rectangle<int> textBounds (juce::roundToInt (capX),
-                                         juce::roundToInt (capY),
-                                         juce::roundToInt (capW),
-                                         juce::roundToInt (capW));
-        g.drawText (valText, textBounds, juce::Justification::centred, false);
+            juce::Rectangle<int> textBounds (juce::roundToInt (capX),
+                                             juce::roundToInt (capY),
+                                             juce::roundToInt (capW),
+                                             juce::roundToInt (capW));
+            g.drawText (valText, textBounds, juce::Justification::centred, false);
+        }
     }
 
     void drawToggleButton (juce::Graphics& g, juce::ToggleButton& button,
