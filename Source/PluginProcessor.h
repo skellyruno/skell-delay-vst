@@ -34,7 +34,7 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
-    // Peak level meters read by PluginEditor timer
+    // Meter levels
     float getLeftLevel()  const { return leftLevel.get(); }
     float getRightLevel() const { return rightLevel.get(); }
 
@@ -43,23 +43,23 @@ public:
 private:
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
-    // Audio Buffer & State
     juce::AudioBuffer<float> delayBuffer;
     int writePosition = 0;
 
-    // Parameter Smoothers
+    // Smoothers
     juce::LinearSmoothedValue<float> smoothedDelaySamples;
     juce::LinearSmoothedValue<float> smoothedFeedback;
-    juce::LinearSmoothedValue<float> smoothedMix;
+    juce::LinearSmoothedValue<float> smoothedDry;
+    juce::LinearSmoothedValue<float> smoothedWet;
 
-    // Feedback Loop Filters
+    // Filters
     juce::dsp::StateVariableTPTFilter<float> hpFilterL, hpFilterR;
     juce::dsp::StateVariableTPTFilter<float> lpFilterL, lpFilterR;
 
-    // Ducking State
+    // Ducking envelope follower
     float duckingEnv = 0.0f;
 
-    // Thread-safe level tracking for GUI meters
+    // Peak levels for GUI
     juce::Atomic<float> leftLevel { 0.0f };
     juce::Atomic<float> rightLevel { 0.0f };
 
