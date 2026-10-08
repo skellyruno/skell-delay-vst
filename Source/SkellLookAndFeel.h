@@ -6,10 +6,11 @@ class SkellLookAndFeel : public juce::LookAndFeel_V4
 public:
     SkellLookAndFeel()
     {
-        setColour (juce::Slider::rotarySliderFillColourId, juce::Colour (0xff00ff66));
-        setColour (juce::Slider::thumbColourId, juce::Colour (0xff00ff66));
-        setColour (juce::Label::textColourId, juce::Colour (0xff00ff66));
-        setColour (juce::ToggleButton::tickColourId, juce::Colour (0xff00ff66));
+        // Vivid Lime Green palette (#39FF14)
+        setColour (juce::Slider::rotarySliderFillColourId, juce::Colour (0xff39ff14));
+        setColour (juce::Slider::thumbColourId, juce::Colour (0xff39ff14));
+        setColour (juce::Label::textColourId, juce::Colour (0xff39ff14));
+        setColour (juce::ToggleButton::tickColourId, juce::Colour (0xff39ff14));
     }
 
     void drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height,
@@ -23,14 +24,14 @@ public:
         const bool isInteracting = slider.isMouseOverOrDragging();
         const float angle = rotaryStartAngle + sliderPosProportional * (rotaryEndAngle - rotaryStartAngle);
 
-        // 1. Background Arc Track
+        // 1. Dark Background Track
         juce::Path bgTrack;
         bgTrack.addCentredArc (centreX, centreY, radius - 2.0f, radius - 2.0f, 0.0f,
                                rotaryStartAngle, rotaryEndAngle, true);
-        g.setColour (juce::Colour (0xff0c140c));
+        g.setColour (juce::Colour (0xff081404));
         g.strokePath (bgTrack, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
-        // 2. Active Illuminated Arc
+        // 2. Active Illuminated Lime Arc (#39FF14)
         const bool isBipolar = (slider.getMinimum() < 0.0 && slider.getMaximum() > 0.0);
         const float zeroAngle = isBipolar ? (rotaryStartAngle + rotaryEndAngle) * 0.5f : rotaryStartAngle;
 
@@ -40,13 +41,13 @@ public:
             activeTrack.addCentredArc (centreX, centreY, radius - 2.0f, radius - 2.0f, 0.0f,
                                        juce::jmin (zeroAngle, angle), juce::jmax (zeroAngle, angle), true);
 
-            juce::Colour neonColor = isInteracting ? juce::Colour (0xff66ff99) : juce::Colour (0xff00ff66);
-            g.setColour (neonColor);
+            juce::Colour limeColor = isInteracting ? juce::Colour (0xff66ff33) : juce::Colour (0xff39ff14);
+            g.setColour (limeColor);
             g.strokePath (activeTrack, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
             if (isInteracting)
             {
-                g.setColour (neonColor.withAlpha (0.45f));
+                g.setColour (limeColor.withAlpha (0.45f));
                 g.strokePath (activeTrack, juce::PathStrokeType (6.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
             }
         }
@@ -57,16 +58,16 @@ public:
         const auto capY = centreY - capRadius;
         const auto capW = capRadius * 2.0f;
 
-        g.setColour (isInteracting ? juce::Colour (0xff142214) : juce::Colour (0xff0a0f0a));
+        g.setColour (isInteracting ? juce::Colour (0xff102408) : juce::Colour (0xff081204));
         g.fillEllipse (capX, capY, capW, capW);
 
         // Rim Border
-        g.setColour (isInteracting ? juce::Colour (0xff00ff66) : juce::Colour (0xff1a2b1a));
+        g.setColour (isInteracting ? juce::Colour (0xff39ff14) : juce::Colour (0xff184a08));
         g.drawEllipse (capX, capY, capW, capW, isInteracting ? 1.5f : 1.0f);
 
         if (isInteracting)
         {
-            g.setColour (juce::Colour (0xff00ff66).withAlpha (0.25f));
+            g.setColour (juce::Colour (0xff39ff14).withAlpha (0.25f));
             g.drawEllipse (capX - 1.5f, capY - 1.5f, capW + 3.0f, capW + 3.0f, 1.0f);
         }
 
@@ -75,15 +76,15 @@ public:
         p.addRectangle (-1.25f, -capRadius + 2.0f, 2.5f, capRadius * 0.38f);
         p.applyTransform (juce::AffineTransform::rotation (angle).translated (centreX, centreY));
 
-        g.setColour (isInteracting ? juce::Colour (0xffffffff) : juce::Colour (0xff00ff66));
+        g.setColour (isInteracting ? juce::Colour (0xffffffff) : juce::Colour (0xff39ff14));
         g.fillPath (p);
 
-        // 5. Centered Parameter Readout
+        // 5. Centered Readout Value
         juce::String valText = slider.getTextFromValue (slider.getValue());
         float fontSize = juce::jlimit (9.0f, 14.0f, capRadius * 0.70f);
 
         g.setFont (juce::FontOptions (fontSize).withStyle ("Bold"));
-        g.setColour (isInteracting ? juce::Colour (0xffffffff) : juce::Colour (0xff00ff66));
+        g.setColour (isInteracting ? juce::Colour (0xffffffff) : juce::Colour (0xff39ff14));
 
         juce::Rectangle<int> textBounds (juce::roundToInt (capX),
                                          juce::roundToInt (capY),
@@ -105,19 +106,19 @@ public:
 
         const bool isChecked = button.getToggleState();
 
-        g.setColour (juce::Colour (0xff060a06));
+        g.setColour (juce::Colour (0xff050c03));
         g.fillRoundedRectangle (boxRect, 3.0f);
 
-        g.setColour (isChecked ? juce::Colour (0xff00ff66) : juce::Colour (0xff005522));
+        g.setColour (isChecked ? juce::Colour (0xff39ff14) : juce::Colour (0xff155e05));
         g.drawRoundedRectangle (boxRect, 3.0f, 1.5f);
 
         if (isChecked)
         {
             auto fillRect = boxRect.reduced (3.0f);
-            g.setColour (juce::Colour (0xff00ff66));
+            g.setColour (juce::Colour (0xff39ff14));
             g.fillRoundedRectangle (fillRect, 2.0f);
 
-            g.setColour (juce::Colour (0xff00ff66).withAlpha (0.35f));
+            g.setColour (juce::Colour (0xff39ff14).withAlpha (0.35f));
             g.drawRoundedRectangle (boxRect.expanded (1.5f), 4.0f, 1.0f);
         }
     }
@@ -134,18 +135,18 @@ public:
 
         if (isActive)
         {
-            g.setColour (juce::Colour (0xff00ff66));
+            g.setColour (juce::Colour (0xff39ff14));
             g.fillRoundedRectangle (bounds, 2.5f);
 
-            g.setColour (juce::Colour (0xff00ff66).withAlpha (0.5f));
+            g.setColour (juce::Colour (0xff39ff14).withAlpha (0.5f));
             g.drawRoundedRectangle (bounds.expanded (1.0f), 3.0f, 1.25f);
         }
         else
         {
-            g.setColour (juce::Colour (0xff0d120d));
+            g.setColour (juce::Colour (0xff091404));
             g.fillRoundedRectangle (bounds, 2.5f);
 
-            g.setColour (juce::Colour (0xff004411));
+            g.setColour (juce::Colour (0xff134805));
             g.drawRoundedRectangle (bounds, 2.5f, 1.0f);
         }
     }
@@ -157,7 +158,7 @@ public:
 
         const bool isActive = button.getToggleState();
 
-        g.setColour (isActive ? juce::Colour (0xff050805) : juce::Colour (0xff00aa44));
+        g.setColour (isActive ? juce::Colour (0xff040a02) : juce::Colour (0xff2ccb0f));
         g.setFont (juce::FontOptions (7.5f).withStyle ("Bold"));
         g.drawText (button.getButtonText(), button.getLocalBounds(), juce::Justification::centred, false);
     }
