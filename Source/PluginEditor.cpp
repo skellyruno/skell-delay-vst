@@ -44,7 +44,7 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
         addAndMakeVisible (s);
 
         l.setText (text, juce::dontSendNotification);
-        l.setFont (juce::FontOptions (11.5f).withStyle ("Bold").withItalic (true));
+        l.setFont (juce::FontOptions (11.5f).withStyle ("Bold Italic"));
         l.setColour (juce::Label::textColourId, juce::Colour (0xff00ff66));
         l.setJustificationType (juce::Justification::centred);
         addAndMakeVisible (l);
@@ -62,7 +62,7 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
 
     addAndMakeVisible (pingPongButton);
     pingPongLabel.setText ("PING PONG", juce::dontSendNotification);
-    pingPongLabel.setFont (juce::FontOptions (10.0f).withStyle ("Bold").withItalic (true));
+    pingPongLabel.setFont (juce::FontOptions (10.0f).withStyle ("Bold Italic"));
     pingPongLabel.setColour (juce::Label::textColourId, juce::Colour (0xff00ff66));
     pingPongLabel.setJustificationType (juce::Justification::centred);
     addAndMakeVisible (pingPongLabel);
