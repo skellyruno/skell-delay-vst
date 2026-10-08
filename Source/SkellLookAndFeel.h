@@ -30,7 +30,7 @@ public:
         g.setColour (juce::Colour (0xff0c140c));
         g.strokePath (bgTrack, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
-        // 2. Active Illuminated Arc (Lights up on position and interaction)
+        // 2. Active Illuminated Arc
         const bool isBipolar = (slider.getMinimum() < 0.0 && slider.getMaximum() > 0.0);
         const float zeroAngle = isBipolar ? (rotaryStartAngle + rotaryEndAngle) * 0.5f : rotaryStartAngle;
 
@@ -44,7 +44,6 @@ public:
             g.setColour (neonColor);
             g.strokePath (activeTrack, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
-            // Outer Light-Up Halo when turning/hovering
             if (isInteracting)
             {
                 g.setColour (neonColor.withAlpha (0.45f));
@@ -52,7 +51,7 @@ public:
             }
         }
 
-        // 3. Knob Body (Inner Cap)
+        // 3. Inner Cap Body
         const auto capRadius = radius - 6.0f;
         const auto capX = centreX - capRadius;
         const auto capY = centreY - capRadius;
@@ -61,7 +60,7 @@ public:
         g.setColour (isInteracting ? juce::Colour (0xff142214) : juce::Colour (0xff0a0f0a));
         g.fillEllipse (capX, capY, capW, capW);
 
-        // Inner Rim Border Glow
+        // Rim Border
         g.setColour (isInteracting ? juce::Colour (0xff00ff66) : juce::Colour (0xff1a2b1a));
         g.drawEllipse (capX, capY, capW, capW, isInteracting ? 1.5f : 1.0f);
 
@@ -71,17 +70,17 @@ public:
             g.drawEllipse (capX - 1.5f, capY - 1.5f, capW + 3.0f, capW + 3.0f, 1.0f);
         }
 
-        // 4. Pointer Indicator Needle
+        // 4. Indicator Needle
         juce::Path p;
-        p.addRectangle (-1.25f, -capRadius + 2.0f, 2.5f, capRadius * 0.40f);
+        p.addRectangle (-1.25f, -capRadius + 2.0f, 2.5f, capRadius * 0.38f);
         p.applyTransform (juce::AffineTransform::rotation (angle).translated (centreX, centreY));
 
         g.setColour (isInteracting ? juce::Colour (0xffffffff) : juce::Colour (0xff00ff66));
         g.fillPath (p);
 
-        // 5. Centered Parameter Value Readout Inside Knob
+        // 5. Centered Parameter Readout
         juce::String valText = slider.getTextFromValue (slider.getValue());
-        float fontSize = juce::jlimit (8.0f, 13.0f, capRadius * 0.65f);
+        float fontSize = juce::jlimit (9.0f, 14.0f, capRadius * 0.70f);
 
         g.setFont (juce::FontOptions (fontSize).withStyle ("Bold"));
         g.setColour (isInteracting ? juce::Colour (0xffffffff) : juce::Colour (0xff00ff66));
@@ -101,22 +100,18 @@ public:
 
         const bool isChecked = button.getToggleState();
 
-        // Dark background box
         g.setColour (juce::Colour (0xff060a06));
         g.fillRoundedRectangle (boxRect, 3.0f);
 
-        // Fixed crisp neon border
         g.setColour (isChecked ? juce::Colour (0xff00ff66) : juce::Colour (0xff005522));
         g.drawRoundedRectangle (boxRect, 3.0f, 1.5f);
 
         if (isChecked)
         {
-            // Inner filled tick indicator
             auto fillRect = boxRect.reduced (3.0f);
             g.setColour (juce::Colour (0xff00ff66));
             g.fillRoundedRectangle (fillRect, 2.0f);
 
-            // Active neon glow around border
             g.setColour (juce::Colour (0xff00ff66).withAlpha (0.35f));
             g.drawRoundedRectangle (boxRect.expanded (1.5f), 4.0f, 1.0f);
         }
@@ -158,7 +153,7 @@ public:
         const bool isActive = button.getToggleState();
 
         g.setColour (isActive ? juce::Colour (0xff050805) : juce::Colour (0xff00aa44));
-        g.setFont (juce::FontOptions (8.5f).withStyle ("Bold"));
-        g.drawText (button.getButtonText(), button.getLocalBounds(), juce::Justification::centred, true);
+        g.setFont (juce::FontOptions (7.5f).withStyle ("Bold"));
+        g.drawText (button.getButtonText(), button.getLocalBounds(), juce::Justification::centred, false);
     }
 };
