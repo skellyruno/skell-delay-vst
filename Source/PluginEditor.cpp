@@ -44,13 +44,12 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
         addAndMakeVisible (s);
 
         l.setText (text, juce::dontSendNotification);
-        l.setFont (juce::Font (11.5f, juce::Font::bold | juce::Font::italic));
+        l.setFont (juce::FontOptions (11.5f).withStyle ("Bold").withItalic (true));
         l.setColour (juce::Label::textColourId, juce::Colour (0xff00ff66));
         l.setJustificationType (juce::Justification::centred);
         addAndMakeVisible (l);
     };
 
-    // Knobs & Labels
     setupKnob (panSlider, panLabel, "PAN");
     setupKnob (smoothSlider, smoothLabel, "SMOOTH");
 
@@ -63,12 +62,11 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
 
     addAndMakeVisible (pingPongButton);
     pingPongLabel.setText ("PING PONG", juce::dontSendNotification);
-    pingPongLabel.setFont (juce::Font (10.0f, juce::Font::bold | juce::Font::italic));
+    pingPongLabel.setFont (juce::FontOptions (10.0f).withStyle ("Bold").withItalic (true));
     pingPongLabel.setColour (juce::Label::textColourId, juce::Colour (0xff00ff66));
     pingPongLabel.setJustificationType (juce::Justification::centred);
     addAndMakeVisible (pingPongLabel);
 
-    // Mode Buttons
     digitalBtn.setRadioGroupId (1001);
     analogBtn.setRadioGroupId (1001);
     tapeBtn.setRadioGroupId (1001);
@@ -85,7 +83,6 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     analogBtn.onClick  = [this]() { updateModeButtons (1); };
     tapeBtn.onClick    = [this]() { updateModeButtons (2); };
 
-    // Attachments
     panAttach      = std::make_unique<SliderAttachment>(audioProcessor.apvts, "PAN", panSlider);
     smoothAttach   = std::make_unique<SliderAttachment>(audioProcessor.apvts, "SMOOTH", smoothSlider);
     timeAttach     = std::make_unique<SliderAttachment>(audioProcessor.apvts, "DELAY_TIME", timeSlider);
@@ -140,18 +137,15 @@ void DelayAudioProcessorEditor::paint (juce::Graphics& g)
 
 void DelayAudioProcessorEditor::resized()
 {
-    // --- 1. LED METERS ---
     leftMeter.setBounds (9, 45, 11, 150);
     rightMeter.setBounds (730, 45, 11, 150);
 
-    // --- 2. LEFT PANEL (PAN, SMOOTH) ---
     panSlider.setBounds (48, 88, 56, 56);
     panLabel.setBounds (38, 148, 76, 16);
 
     smoothSlider.setBounds (120, 88, 56, 56);
     smoothLabel.setBounds (110, 148, 76, 16);
 
-    // --- 3. CENTER PANEL ---
     delayDisplay.setBounds (326, 75, 98, 26);
 
     digitalBtn.setBounds (315, 107, 38, 15);
@@ -167,7 +161,6 @@ void DelayAudioProcessorEditor::resized()
     feedbackSlider.setBounds (448, 80, 86, 86);
     feedbackLabel.setBounds (453, 169, 76, 16);
 
-    // --- 4. RIGHT PANEL (DUCKING, DRY, WET) ---
     duckingSlider.setBounds (551, 90, 52, 52);
     duckingLabel.setBounds (540, 148, 75, 16);
 
