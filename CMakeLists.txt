@@ -43,6 +43,7 @@ target_sources(DelayPlugin
         Source/PluginEditor.h
         Source/PluginEditor.cpp
         Source/SkellLookAndFeel.h
+        Source/SkellComponents.h
 )
 
 # Add BinaryData for assets
