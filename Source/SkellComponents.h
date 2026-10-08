@@ -56,7 +56,7 @@ public:
         g.drawRoundedRectangle (bounds, 4.0f, 1.5f);
 
         g.setColour (juce::Colour (0xff00ff66));
-        g.setFont (juce::FontOptions (20.0f).withStyle ("Bold").withItalic (true));
+        g.setFont (juce::FontOptions (20.0f).withStyle ("Bold Italic"));
         g.drawText (displayText, bounds, juce::Justification::centred, true);
     }
 
