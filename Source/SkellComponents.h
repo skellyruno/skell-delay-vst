@@ -17,10 +17,10 @@ public:
         g.fillRoundedRectangle (bounds, 2.0f);
 
         const int numSegments = 18;
-        const float gap = 2.0f;
+        const float gap = 1.5f;
         const float segHeight = (bounds.getHeight() - (gap * (numSegments + 1))) / numSegments;
 
-        int litSegments = static_cast<int>(level * numSegments);
+        const int litSegments = static_cast<int>(level * numSegments);
 
         for (int i = 0; i < numSegments; ++i)
         {
@@ -29,7 +29,7 @@ public:
 
             juce::Colour ledColour = (i > 15) ? juce::Colour (0xffff3333) : juce::Colour (0xff00ff66);
             g.setColour (isLit ? ledColour : ledColour.withAlpha (0.15f));
-            g.fillRect (bounds.getX() + 2.0f, yPos, bounds.getWidth() - 4.0f, segHeight);
+            g.fillRect (bounds.getX() + 1.5f, yPos, bounds.getWidth() - 3.0f, segHeight);
         }
     }
 
@@ -51,12 +51,12 @@ public:
         auto bounds = getLocalBounds().toFloat();
 
         g.setColour (juce::Colour (0xff050805));
-        g.fillRoundedRectangle (bounds, 4.0f);
+        g.fillRoundedRectangle (bounds, 3.5f);
         g.setColour (juce::Colour (0xff00ff66).withAlpha (0.4f));
-        g.drawRoundedRectangle (bounds, 4.0f, 1.5f);
+        g.drawRoundedRectangle (bounds, 3.5f, 1.25f);
 
         g.setColour (juce::Colour (0xff00ff66));
-        g.setFont (juce::FontOptions (20.0f).withStyle ("Bold Italic"));
+        g.setFont (juce::FontOptions (17.0f).withStyle ("Bold Italic"));
         g.drawText (displayText, bounds, juce::Justification::centred, true);
     }
 
