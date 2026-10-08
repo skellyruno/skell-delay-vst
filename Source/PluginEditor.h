@@ -16,12 +16,13 @@ public:
 
 private:
     void timerCallback() override;
+    void updateModeButtons (int selectedIndex);
 
     DelayAudioProcessor& audioProcessor;
     SkellLookAndFeel skellLookAndFeel;
     juce::Image bgImage;
 
-    // Meters & Display
+    // Meters & Display Screen
     SkellMeter leftMeter, rightMeter;
     SkellDisplay delayDisplay;
 
@@ -31,10 +32,10 @@ private:
     juce::Slider mixerSlider, dryWetSlider, hiCutSlider;
     juce::ToggleButton pingPongButton { "" };
 
-    // Mode Selector Buttons
+    // Mode Selector TextButtons
     juce::TextButton digitalBtn { "DIGITAL" }, analogBtn { "ANALOG" }, tapeBtn { "TAPE" };
 
-    // Labels
+    // Neon Green Labels
     juce::Label panLabel, volLabel, timeLabel, feedbackLabel;
     juce::Label mixerLabel, dryWetLabel, hiCutLabel, pingPongLabel;
     juce::Label inputHeader, delayHeader, outputHeader;
