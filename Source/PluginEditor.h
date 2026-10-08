@@ -3,8 +3,9 @@
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
 #include "SkellLookAndFeel.h"
+#include "SkellComponents.h"
 
-class DelayAudioProcessorEditor  : public juce::AudioProcessorEditor
+class DelayAudioProcessorEditor  : public juce::AudioProcessorEditor, private juce::Timer
 {
 public:
     DelayAudioProcessorEditor (DelayAudioProcessor&);
@@ -14,17 +15,29 @@ public:
     void resized() override;
 
 private:
+    void timerCallback() override;
+
     DelayAudioProcessor& audioProcessor;
     SkellLookAndFeel skellLookAndFeel;
-
-    // Background Image
     juce::Image bgImage;
 
-    // Controls matching SKELL-DELAY UI
+    // Meters & Display
+    SkellMeter leftMeter, rightMeter;
+    SkellDisplay delayDisplay;
+
+    // Sliders
     juce::Slider panSlider, volSlider;
     juce::Slider timeSlider, feedbackSlider;
     juce::Slider mixerSlider, dryWetSlider, hiCutSlider;
     juce::ToggleButton pingPongButton { "" };
+
+    // Mode Selector Buttons
+    juce::TextButton digitalBtn { "DIGITAL" }, analogBtn { "ANALOG" }, tapeBtn { "TAPE" };
+
+    // Labels
+    juce::Label panLabel, volLabel, timeLabel, feedbackLabel;
+    juce::Label mixerLabel, dryWetLabel, hiCutLabel, pingPongLabel;
+    juce::Label inputHeader, delayHeader, outputHeader;
 
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
