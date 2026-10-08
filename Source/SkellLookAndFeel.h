@@ -16,31 +16,110 @@ public:
                            float sliderPosProportional, float rotaryStartAngle,
                            float rotaryEndAngle, juce::Slider& slider) override
     {
-        juce::ignoreUnused (slider);
+        const auto radius = juce::jmin (width, height) / 2.0f - 4.0f;
+        const auto centreX = static_cast<float>(x) + static_cast<float>(width) * 0.5f;
+        const auto centreY = static_cast<float>(y) + static_cast<float>(height) * 0.5f;
 
-        auto radius = (float) juce::jmin (width, height) / 2.0f - 2.5f;
-        auto centreX = (float) x + (float) width  * 0.5f;
-        auto centreY = (float) y + (float) height * 0.5f;
-        auto rx = centreX - radius;
-        auto ry = centreY - radius;
-        auto rw = radius * 2.0f;
-        auto angle = rotaryStartAngle + sliderPosProportional * (rotaryEndAngle - rotaryStartAngle);
+        const bool isInteracting = slider.isMouseOverOrDragging();
+        const float angle = rotaryStartAngle + sliderPosProportional * (rotaryEndAngle - rotaryStartAngle);
 
-        g.setColour (juce::Colour (0xff101510));
-        g.fillEllipse (rx, ry, rw, rw);
+        // 1. Background Arc Track
+        juce::Path bgTrack;
+        bgTrack.addCentredArc (centreX, centreY, radius - 2.0f, radius - 2.0f, 0.0f,
+                               rotaryStartAngle, rotaryEndAngle, true);
+        g.setColour (juce::Colour (0xff0c140c));
+        g.strokePath (bgTrack, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
-        g.setColour (juce::Colour (0xff1e291e));
-        g.drawEllipse (rx, ry, rw, rw, 1.25f);
+        // 2. Active Illuminated Arc (Lights up on position and interaction)
+        const bool isBipolar = (slider.getMinimum() < 0.0 && slider.getMaximum() > 0.0);
+        const float zeroAngle = isBipolar ? (rotaryStartAngle + rotaryEndAngle) * 0.5f : rotaryStartAngle;
 
-        g.setColour (juce::Colour (0xff00ff66).withAlpha (0.25f));
-        g.drawEllipse (rx + 1.5f, ry + 1.5f, rw - 3.0f, rw - 3.0f, 1.0f);
+        if (std::abs (angle - zeroAngle) > 0.001f)
+        {
+            juce::Path activeTrack;
+            activeTrack.addCentredArc (centreX, centreY, radius - 2.0f, radius - 2.0f, 0.0f,
+                                       juce::jmin (zeroAngle, angle), juce::jmax (zeroAngle, angle), true);
 
+            juce::Colour neonColor = isInteracting ? juce::Colour (0xff66ff99) : juce::Colour (0xff00ff66);
+            g.setColour (neonColor);
+            g.strokePath (activeTrack, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+            // Outer Light-Up Halo when turning/hovering
+            if (isInteracting)
+            {
+                g.setColour (neonColor.withAlpha (0.45f));
+                g.strokePath (activeTrack, juce::PathStrokeType (6.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            }
+        }
+
+        // 3. Knob Body (Inner Cap)
+        const auto capRadius = radius - 6.0f;
+        const auto capX = centreX - capRadius;
+        const auto capY = centreY - capRadius;
+        const auto capW = capRadius * 2.0f;
+
+        g.setColour (isInteracting ? juce::Colour (0xff142214) : juce::Colour (0xff0a0f0a));
+        g.fillEllipse (capX, capY, capW, capW);
+
+        // Inner Rim Border Glow
+        g.setColour (isInteracting ? juce::Colour (0xff00ff66) : juce::Colour (0xff1a2b1a));
+        g.drawEllipse (capX, capY, capW, capW, isInteracting ? 1.5f : 1.0f);
+
+        if (isInteracting)
+        {
+            g.setColour (juce::Colour (0xff00ff66).withAlpha (0.25f));
+            g.drawEllipse (capX - 1.5f, capY - 1.5f, capW + 3.0f, capW + 3.0f, 1.0f);
+        }
+
+        // 4. Pointer Indicator Needle
         juce::Path p;
-        p.addRectangle (-1.0f, -radius + 2.5f, 2.0f, radius * 0.65f);
+        p.addRectangle (-1.25f, -capRadius + 2.0f, 2.5f, capRadius * 0.40f);
         p.applyTransform (juce::AffineTransform::rotation (angle).translated (centreX, centreY));
 
-        g.setColour (juce::Colour (0xff00ff66));
+        g.setColour (isInteracting ? juce::Colour (0xffffffff) : juce::Colour (0xff00ff66));
         g.fillPath (p);
+
+        // 5. Centered Parameter Value Readout Inside Knob
+        juce::String valText = slider.getTextFromValue (slider.getValue());
+        float fontSize = juce::jlimit (8.0f, 13.0f, capRadius * 0.65f);
+
+        g.setFont (juce::FontOptions (fontSize).withStyle ("Bold"));
+        g.setColour (isInteracting ? juce::Colour (0xffffffff) : juce::Colour (0xff00ff66));
+        g.drawText (valText, capX, capY, capW, capW, juce::Justification::centred, false);
+    }
+
+    void drawToggleButton (juce::Graphics& g, juce::ToggleButton& button,
+                           bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown) override
+    {
+        juce::ignoreUnused (shouldDrawButtonAsHighlighted, shouldDrawButtonAsDown);
+
+        auto bounds = button.getLocalBounds().toFloat();
+        auto boxSize = juce::jmin (bounds.getWidth(), bounds.getHeight());
+        auto boxRect = juce::Rectangle<float> ((bounds.getWidth() - boxSize) * 0.5f,
+                                               (bounds.getHeight() - boxSize) * 0.5f,
+                                               boxSize, boxSize).reduced (1.0f);
+
+        const bool isChecked = button.getToggleState();
+
+        // Dark background box
+        g.setColour (juce::Colour (0xff060a06));
+        g.fillRoundedRectangle (boxRect, 3.0f);
+
+        // Fixed crisp neon border
+        g.setColour (isChecked ? juce::Colour (0xff00ff66) : juce::Colour (0xff005522));
+        g.drawRoundedRectangle (boxRect, 3.0f, 1.5f);
+
+        if (isChecked)
+        {
+            // Inner filled tick indicator
+            auto fillRect = boxRect.reduced (3.0f);
+            g.setColour (juce::Colour (0xff00ff66));
+            g.fillRoundedRectangle (fillRect, 2.0f);
+
+            // Active neon glow around border
+            g.setColour (juce::Colour (0xff00ff66).withAlpha (0.35f));
+            g.drawRoundedRectangle (boxRect.expanded (1.5f), 4.0f, 1.0f);
+        }
     }
 
     void drawButtonBackground (juce::Graphics& g, juce::Button& button,
