@@ -1,23 +1,14 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
-// Helper function converting delay time in ms to musical fraction string
 static juce::String getTimeFractionString (float timeMs)
 {
     struct Division { float ms; const char* name; };
     const Division divisions[] = {
-        { 31.25f,  "1/64" },
-        { 41.67f,  "1/32T" },
-        { 62.50f,  "1/32" },
-        { 83.33f,  "1/16T" },
-        { 125.0f,  "1/16" },
-        { 166.67f, "1/8T" },
-        { 250.0f,  "1/8" },
-        { 333.33f, "1/4T" },
-        { 500.0f,  "1/4" },
-        { 666.67f, "1/2T" },
-        { 1000.0f, "1/2" },
-        { 2000.0f, "1/1" }
+        { 31.25f,  "1/64" },  { 41.67f,  "1/32T" }, { 62.50f,  "1/32" },
+        { 83.33f,  "1/16T" }, { 125.0f,  "1/16" },  { 166.67f, "1/8T" },
+        { 250.0f,  "1/8" },   { 333.33f, "1/4T" },  { 500.0f,  "1/4" },
+        { 666.67f, "1/2T" },  { 1000.0f, "1/2" },   { 2000.0f, "1/1" }
     };
 
     int closestIdx = 0;
@@ -59,27 +50,16 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
         addAndMakeVisible (l);
     };
 
-    auto setupHeader = [this](juce::Label& l, const juce::String& text) {
-        l.setText (text, juce::dontSendNotification);
-        l.setFont (juce::Font (15.0f, juce::Font::bold | juce::Font::italic));
-        l.setColour (juce::Label::textColourId, juce::Colour (0xff00ff66));
-        l.setJustificationType (juce::Justification::centred);
-        addAndMakeVisible (l);
-    };
-
-    setupHeader (inputHeader, "INPUT");
-    setupHeader (delayHeader, "DELAY");
-    setupHeader (outputHeader, "OUTPUT");
-
+    // Knobs & Labels
     setupKnob (panSlider, panLabel, "PAN");
-    setupKnob (volSlider, volLabel, "VOL");
+    setupKnob (smoothSlider, smoothLabel, "SMOOTH");
 
     setupKnob (timeSlider, timeLabel, "TIME");
     setupKnob (feedbackSlider, feedbackLabel, "FEEDBACK");
 
-    setupKnob (mixerSlider, mixerLabel, "MIXER");
-    setupKnob (dryWetSlider, dryWetLabel, "DRY/WET");
-    setupKnob (hiCutSlider, hiCutLabel, "HI-CUT");
+    setupKnob (duckingSlider, duckingLabel, "DUCKING");
+    setupKnob (drySlider, dryLabel, "DRY");
+    setupKnob (wetSlider, wetLabel, "WET");
 
     addAndMakeVisible (pingPongButton);
     pingPongLabel.setText ("PING PONG", juce::dontSendNotification);
@@ -88,7 +68,7 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     pingPongLabel.setJustificationType (juce::Justification::centred);
     addAndMakeVisible (pingPongLabel);
 
-    // Mode Selector Radio Buttons
+    // Mode Buttons
     digitalBtn.setRadioGroupId (1001);
     analogBtn.setRadioGroupId (1001);
     tapeBtn.setRadioGroupId (1001);
@@ -107,27 +87,23 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
 
     // Attachments
     panAttach      = std::make_unique<SliderAttachment>(audioProcessor.apvts, "PAN", panSlider);
-    volAttach      = std::make_unique<SliderAttachment>(audioProcessor.apvts, "VOL", volSlider);
+    smoothAttach   = std::make_unique<SliderAttachment>(audioProcessor.apvts, "SMOOTH", smoothSlider);
     timeAttach     = std::make_unique<SliderAttachment>(audioProcessor.apvts, "DELAY_TIME", timeSlider);
     feedbackAttach = std::make_unique<SliderAttachment>(audioProcessor.apvts, "FEEDBACK", feedbackSlider);
-    mixerAttach    = std::make_unique<SliderAttachment>(audioProcessor.apvts, "MIXER", mixerSlider);
-    dryWetAttach   = std::make_unique<SliderAttachment>(audioProcessor.apvts, "MIX", dryWetSlider);
-    hiCutAttach    = std::make_unique<SliderAttachment>(audioProcessor.apvts, "HICUT", hiCutSlider);
+    duckingAttach  = std::make_unique<SliderAttachment>(audioProcessor.apvts, "DUCKING", duckingSlider);
+    dryAttach      = std::make_unique<SliderAttachment>(audioProcessor.apvts, "DRY", drySlider);
+    wetAttach      = std::make_unique<SliderAttachment>(audioProcessor.apvts, "WET", wetSlider);
     pingPongAttach = std::make_unique<ButtonAttachment>(audioProcessor.apvts, "PINGPONG", pingPongButton);
 
-    // Update time fraction display when time knob moves
     timeSlider.onValueChange = [this]() {
         float ms = static_cast<float>(timeSlider.getValue());
         delayDisplay.setText (getTimeFractionString (ms));
     };
 
-    // Initialize Mode selection state from APVTS
     int currentMode = static_cast<int>(audioProcessor.apvts.getRawParameterValue ("MODE")->load());
     updateModeButtons (currentMode);
 
     startTimerHz (30);
-
-    // 25% Reduction Size (750 x 240)
     setSize (750, 240);
 }
 
@@ -164,50 +140,40 @@ void DelayAudioProcessorEditor::paint (juce::Graphics& g)
 
 void DelayAudioProcessorEditor::resized()
 {
-    // --- 1. FAR LEFT & FAR RIGHT LED METERS ---
-    leftMeter.setBounds (9, 48, 11, 150);
-    rightMeter.setBounds (730, 48, 11, 150);
+    // --- 1. LED METERS ---
+    leftMeter.setBounds (9, 45, 11, 150);
+    rightMeter.setBounds (730, 45, 11, 150);
 
-    // --- 2. INPUT SECTION ---
-    inputHeader.setBounds (45, 50, 135, 20);
+    // --- 2. LEFT PANEL (PAN, SMOOTH) ---
+    panSlider.setBounds (48, 88, 56, 56);
+    panLabel.setBounds (38, 148, 76, 16);
 
-    panSlider.setBounds (48, 90, 56, 56);
-    panLabel.setBounds (38, 150, 76, 16);
+    smoothSlider.setBounds (120, 88, 56, 56);
+    smoothLabel.setBounds (110, 148, 76, 16);
 
-    volSlider.setBounds (120, 90, 56, 56);
-    volLabel.setBounds (110, 150, 76, 16);
+    // --- 3. CENTER PANEL ---
+    delayDisplay.setBounds (326, 75, 98, 26);
 
-    // --- 3. CENTER DELAY SECTION ---
-    delayHeader.setBounds (308, 50, 135, 20);
+    digitalBtn.setBounds (315, 107, 38, 15);
+    analogBtn.setBounds (356, 107, 38, 15);
+    tapeBtn.setBounds (397, 107, 38, 15);
 
-    // Time Display Box
-    delayDisplay.setBounds (326, 78, 98, 26);
+    pingPongButton.setBounds (366, 127, 18, 18);
+    pingPongLabel.setBounds (326, 147, 98, 15);
 
-    // Mode Buttons
-    digitalBtn.setBounds (315, 110, 38, 15);
-    analogBtn.setBounds (356, 110, 38, 15);
-    tapeBtn.setBounds (397, 110, 38, 15);
+    timeSlider.setBounds (214, 80, 86, 86);
+    timeLabel.setBounds (219, 169, 76, 16);
 
-    // Ping Pong Switch
-    pingPongButton.setBounds (366, 130, 18, 18);
-    pingPongLabel.setBounds (326, 150, 98, 15);
+    feedbackSlider.setBounds (448, 80, 86, 86);
+    feedbackLabel.setBounds (453, 169, 76, 16);
 
-    // Large Center Knobs
-    timeSlider.setBounds (214, 82, 86, 86);
-    timeLabel.setBounds (219, 171, 76, 16);
+    // --- 4. RIGHT PANEL (DUCKING, DRY, WET) ---
+    duckingSlider.setBounds (551, 90, 52, 52);
+    duckingLabel.setBounds (540, 148, 75, 16);
 
-    feedbackSlider.setBounds (448, 82, 86, 86);
-    feedbackLabel.setBounds (453, 171, 76, 16);
+    drySlider.setBounds (611, 90, 52, 52);
+    dryLabel.setBounds (600, 148, 75, 16);
 
-    // --- 4. OUTPUT SECTION ---
-    outputHeader.setBounds (548, 50, 172, 20);
-
-    mixerSlider.setBounds (551, 94, 52, 52);
-    mixerLabel.setBounds (540, 150, 75, 16);
-
-    dryWetSlider.setBounds (611, 94, 52, 52);
-    dryWetLabel.setBounds (600, 150, 75, 16);
-
-    hiCutSlider.setBounds (671, 94, 52, 52);
-    hiCutLabel.setBounds (660, 150, 75, 16);
+    wetSlider.setBounds (671, 90, 52, 52);
+    wetLabel.setBounds (660, 148, 75, 16);
 }
