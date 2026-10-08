@@ -17,6 +17,7 @@ public:
                            float sliderPosProportional, float rotaryStartAngle,
                            float rotaryEndAngle, juce::Slider& slider) override
     {
+        juce::ignoreUnused (slider);
         auto radius = (float) juce::jmin (width, height) / 2.0f - 4.0f;
         auto centreX = (float) x + (float) width  * 0.5f;
         auto centreY = (float) y + (float) height * 0.5f;
