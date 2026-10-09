@@ -16,9 +16,7 @@ DelayAudioProcessor::DelayAudioProcessor()
 {
 }
 
-DelayAudioProcessor::~DelayAudioProcessor()
-{
-}
+DelayAudioProcessor::~DelayAudioProcessor() {}
 
 juce::AudioProcessorValueTreeState::ParameterLayout DelayAudioProcessor::createParameterLayout()
 {
@@ -59,7 +57,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout DelayAudioProcessor::createP
 }
 
 const juce::String DelayAudioProcessor::getName() const { return JucePlugin_Name; }
-
 bool DelayAudioProcessor::acceptsMidi() const { return false; }
 bool DelayAudioProcessor::producesMidi() const { return false; }
 bool DelayAudioProcessor::isMidiEffect() const { return false; }
@@ -83,12 +80,11 @@ void DelayAudioProcessor::prepareToPlay (double sr, int samplesPerBlock)
     writePosition = 0;
     duckEnvelope = 0.0f;
 
+    // Smoother initialized ONCE here to fix the frozen delay bug
     smoothDelayTime.reset (sampleRate, 0.05);
 }
 
-void DelayAudioProcessor::releaseResources()
-{
-}
+void DelayAudioProcessor::releaseResources() {}
 
 #ifndef JucePlugin_PreferredChannelConfigurations
 bool DelayAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -97,10 +93,7 @@ bool DelayAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) co
      && layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
         return false;
 
-    if (layouts.getMainOutputChannelSet() != layouts.getMainInputChannelSet())
-        return false;
-
-    return true;
+    return layouts.getMainOutputChannelSet() == layouts.getMainInputChannelSet();
 }
 #endif
 
@@ -117,7 +110,6 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         buffer.clear (i, 0, numSamples);
 
     const float panVal       = apvts.getRawParameterValue ("PAN")->load();
-    const float smoothVal    = apvts.getRawParameterValue ("SMOOTH")->load();
     const float targetTimeMs = apvts.getRawParameterValue ("DELAY_TIME")->load();
     const float feedbackVal  = juce::jmin (0.98f, apvts.getRawParameterValue ("FEEDBACK")->load());
     const float duckingVal   = apvts.getRawParameterValue ("DUCKING")->load();
@@ -126,8 +118,7 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     const bool  isPingPong   = apvts.getRawParameterValue ("PINGPONG")->load() > 0.5f;
     const int   modeVal      = static_cast<int>(apvts.getRawParameterValue ("MODE")->load());
 
-    float rampTime = juce::jmap (smoothVal, 0.0f, 100.0f, 0.005f, 0.200f);
-    smoothDelayTime.reset (sampleRate, rampTime);
+    // Update smoother target sample delay
     smoothDelayTime.setTargetValue ((targetTimeMs / 1000.0f) * static_cast<float>(sampleRate));
 
     const int delayBufLen = delayBuffer.getNumSamples();
@@ -146,7 +137,7 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         const float currentDelaySamples = smoothDelayTime.getNextValue();
 
         float readPosition = static_cast<float>(writePosition) - currentDelaySamples;
-        if (readPosition < 0.0f)
+        while (readPosition < 0.0f)
             readPosition += static_cast<float>(delayBufLen);
 
         int readIdx1 = static_cast<int>(readPosition);
@@ -156,16 +147,8 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         float delayLeft = (1.0f - frac) * delayBuffer.getSample (0, readIdx1) + frac * delayBuffer.getSample (0, readIdx2);
         float delayRight = (1.0f - frac) * delayBuffer.getSample (1, readIdx1) + frac * delayBuffer.getSample (1, readIdx2);
 
-        if (modeVal == 1) // Analog
-        {
-            delayLeft  = std::tanh (delayLeft * 1.1f) * 0.95f;
-            delayRight = std::tanh (delayRight * 1.1f) * 0.95f;
-        }
-        else if (modeVal == 2) // Tape
-        {
-            delayLeft  = std::tanh (delayLeft * 1.35f) * 0.85f;
-            delayRight = std::tanh (delayRight * 1.35f) * 0.85f;
-        }
+        if (modeVal == 1)      { delayLeft = std::tanh (delayLeft * 1.1f) * 0.95f; delayRight = std::tanh (delayRight * 1.1f) * 0.95f; }
+        else if (modeVal == 2) { delayLeft = std::tanh (delayLeft * 1.35f) * 0.85f; delayRight = std::tanh (delayRight * 1.35f) * 0.85f; }
 
         float inLeft  = totalNumInputChannels > 0 ? buffer.getSample (0, sample) : 0.0f;
         float inRight = totalNumInputChannels > 1 ? buffer.getSample (1, sample) : inLeft;
