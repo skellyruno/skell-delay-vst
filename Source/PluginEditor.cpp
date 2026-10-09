@@ -82,7 +82,7 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     analogBtn.onClick  = [this]() { updateModeButtons (1); };
     tapeBtn.onClick    = [this]() { updateModeButtons (2); };
 
-    // 1. Create attachments FIRST
+    // 1. Create attachments
     panAttach      = std::make_unique<SliderAttachment>(audioProcessor.apvts, "PAN", panSlider);
     smoothAttach   = std::make_unique<SliderAttachment>(audioProcessor.apvts, "SMOOTH", smoothSlider);
     timeAttach     = std::make_unique<SliderAttachment>(audioProcessor.apvts, "DELAY_TIME", timeSlider);
@@ -92,35 +92,27 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     duckingAttach  = std::make_unique<SliderAttachment>(audioProcessor.apvts, "DUCKING", duckingSlider);
     pingPongAttach = std::make_unique<ButtonAttachment>(audioProcessor.apvts, "PINGPONG", pingPongButton);
 
-    // 2. Define textFromValueFunction AFTER attachments so they don't get overridden
-    panSlider.textFromValueFunction = [](double v) {
-        return juce::String (juce::roundToInt ((v + 1.0) * 50.0));
-    };
+    // 2. Pair textFromValue and valueFromText AFTER attachments for strict 0-100 display
+    panSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt ((v + 1.0) * 50.0)); };
+    panSlider.valueFromTextFunction = [](const juce::String& t) { return (t.getDoubleValue() / 50.0) - 1.0; };
 
-    smoothSlider.textFromValueFunction = [](double v) {
-        return juce::String (juce::roundToInt (v));
-    };
+    smoothSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v)); };
+    smoothSlider.valueFromTextFunction = [](const juce::String& t) { return t.getDoubleValue(); };
 
-    // Inside TIME knob now displays the fraction string (e.g. 1/8) matching center screen
-    timeSlider.textFromValueFunction = [](double v) {
-        return getTimeFractionString (static_cast<float>(v));
-    };
+    // TIME knob displays note fraction string (1/8) matching center screen
+    timeSlider.textFromValueFunction = [](double v) { return getTimeFractionString (static_cast<float>(v)); };
 
-    feedbackSlider.textFromValueFunction = [](double v) {
-        return juce::String (juce::roundToInt (v * 100.0));
-    };
+    feedbackSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v * 100.0)); };
+    feedbackSlider.valueFromTextFunction = [](const juce::String& t) { return t.getDoubleValue() / 100.0; };
 
-    duckingSlider.textFromValueFunction = [](double v) {
-        return juce::String (juce::roundToInt (v * 100.0));
-    };
+    drySlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v * 100.0)); };
+    drySlider.valueFromTextFunction = [](const juce::String& t) { return t.getDoubleValue() / 100.0; };
 
-    drySlider.textFromValueFunction = [](double v) {
-        return juce::String (juce::roundToInt (v * 100.0));
-    };
+    wetSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v * 100.0)); };
+    wetSlider.valueFromTextFunction = [](const juce::String& t) { return t.getDoubleValue() / 100.0; };
 
-    wetSlider.textFromValueFunction = [](double v) {
-        return juce::String (juce::roundToInt (v * 100.0));
-    };
+    duckingSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v * 100.0)); };
+    duckingSlider.valueFromTextFunction = [](const juce::String& t) { return t.getDoubleValue() / 100.0; };
 
     timeSlider.onValueChange = [this]() {
         float ms = static_cast<float>(timeSlider.getValue());
@@ -168,22 +160,21 @@ void DelayAudioProcessorEditor::paint (juce::Graphics& g)
 
 void DelayAudioProcessorEditor::resized()
 {
-    // Outer Meters
     leftMeter.setBounds (10, 42, 8, 128);
     rightMeter.setBounds (620, 42, 8, 128);
 
-    // Left Small Knobs (Shifted down for clearance)
+    // Left Small Knobs
     panSlider.setBounds (40, 80, 48, 48);
     panLabel.setBounds (32, 130, 64, 14);
 
     smoothSlider.setBounds (104, 80, 48, 48);
     smoothLabel.setBounds (96, 130, 64, 14);
 
-    // Large TIME Knob (1/8 centered at 12 o'clock)
+    // TIME Knob
     timeSlider.setBounds (174, 72, 72, 72);
     timeLabel.setBounds (178, 146, 64, 14);
 
-    // Center Display & Mode Selection Buttons
+    // Center Section
     delayDisplay.setBounds (269, 68, 100, 24);
 
     digitalBtn.setBounds (260, 96, 38, 15);
@@ -193,17 +184,17 @@ void DelayAudioProcessorEditor::resized()
     pingPongButton.setBounds (311, 116, 16, 16);
     pingPongLabel.setBounds (269, 133, 100, 14);
 
-    // Large FEEDBACK Knob
+    // FEEDBACK Knob
     feedbackSlider.setBounds (390, 72, 72, 72);
     feedbackLabel.setBounds (394, 146, 64, 14);
 
-    // Right Knobs: DRY, WET, DUCKING (Shifted down and brought inward to clear top/right border artwork)
-    drySlider.setBounds (478, 64, 44, 44);
-    dryLabel.setBounds (468, 110, 64, 14);
+    // Right Small Knobs (Shifted inward to clear border artwork)
+    drySlider.setBounds (470, 68, 44, 44);
+    dryLabel.setBounds (460, 114, 64, 14);
 
-    wetSlider.setBounds (536, 64, 44, 44);
-    wetLabel.setBounds (526, 110, 64, 14);
+    wetSlider.setBounds (525, 68, 44, 44);
+    wetLabel.setBounds (515, 114, 64, 14);
 
-    duckingSlider.setBounds (507, 122, 44, 44);
-    duckingLabel.setBounds (492, 168, 74, 14);
+    duckingSlider.setBounds (498, 126, 44, 44);
+    duckingLabel.setBounds (483, 170, 74, 14);
 }
