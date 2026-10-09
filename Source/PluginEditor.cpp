@@ -8,13 +8,13 @@ static juce::String getTimeFractionString (float timeMs)
         { 31.25f,  "1/64" },  { 41.67f,  "1/32T" }, { 62.50f,  "1/32" },
         { 83.33f,  "1/16T" }, { 125.0f,  "1/16" },  { 166.67f, "1/8T" },
         { 250.0f,  "1/8" },   { 333.33f, "1/4T" },  { 500.0f,  "1/4" },
-        { 666.67f, "1/2T" },  { 1000.0f, "1/2" },   { 2000.0f, "1/1" }
+        { 666.67f, "1/2T" },  { 1000.0f, "1/1" }
     };
 
     int closestIdx = 0;
     float minDiff = std::abs (timeMs - divisions[0].ms);
 
-    for (int i = 1; i < 12; ++i)
+    for (int i = 1; i < 11; ++i)
     {
         float diff = std::abs (timeMs - divisions[i].ms);
         if (diff < minDiff)
@@ -38,10 +38,25 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     addAndMakeVisible (rightMeter);
     addAndMakeVisible (delayDisplay);
 
+    // Preset Menu Configuration
+    presetSelector.addItem ("SKELL Default", 1);
+    presetSelector.addItem ("Slapback Echo", 2);
+    presetSelector.addItem ("Vocal Ducking", 3);
+    presetSelector.addItem ("Tape Wash",    4);
+    presetSelector.addItem ("Ping-Pong Lead", 5);
+    presetSelector.setSelectedId (1, juce::dontSendNotification);
+
+    presetSelector.setColour (juce::ComboBox::backgroundColourId, juce::Colour (0xff081404));
+    presetSelector.setColour (juce::ComboBox::outlineColourId, juce::Colour (0xff39ff14));
+    presetSelector.setColour (juce::ComboBox::textColourId, juce::Colour (0xff39ff14));
+    presetSelector.setColour (juce::ComboBox::arrowColourId, juce::Colour (0xff39ff14));
+
+    presetSelector.onChange = [this]() { applyPreset (presetSelector.getSelectedId()); };
+    addAndMakeVisible (presetSelector);
+
     auto setupKnob = [this](juce::Slider& s, juce::Label& l, const juce::String& text) {
         s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
         s.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-        s.onValueChange = [&s]() { s.repaint(); };
         addAndMakeVisible (s);
 
         l.setText (text, juce::dontSendNotification);
@@ -82,7 +97,7 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     analogBtn.onClick  = [this]() { updateModeButtons (1); };
     tapeBtn.onClick    = [this]() { updateModeButtons (2); };
 
-    // 1. Create attachments
+    // Attachments
     panAttach      = std::make_unique<SliderAttachment>(audioProcessor.apvts, "PAN", panSlider);
     smoothAttach   = std::make_unique<SliderAttachment>(audioProcessor.apvts, "SMOOTH", smoothSlider);
     timeAttach     = std::make_unique<SliderAttachment>(audioProcessor.apvts, "DELAY_TIME", timeSlider);
@@ -92,33 +107,14 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     duckingAttach  = std::make_unique<SliderAttachment>(audioProcessor.apvts, "DUCKING", duckingSlider);
     pingPongAttach = std::make_unique<ButtonAttachment>(audioProcessor.apvts, "PINGPONG", pingPongButton);
 
-    // 2. Pair textFromValue and valueFromText AFTER attachments for strict 0-100 display
+    // Text Formatters
     panSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt ((v + 1.0) * 50.0)); };
-    panSlider.valueFromTextFunction = [](const juce::String& t) { return (t.getDoubleValue() / 50.0) - 1.0; };
-
     smoothSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v)); };
-    smoothSlider.valueFromTextFunction = [](const juce::String& t) { return t.getDoubleValue(); };
-
-    // TIME knob displays note fraction string (1/8) matching center screen
     timeSlider.textFromValueFunction = [](double v) { return getTimeFractionString (static_cast<float>(v)); };
-
     feedbackSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v * 100.0)); };
-    feedbackSlider.valueFromTextFunction = [](const juce::String& t) { return t.getDoubleValue() / 100.0; };
-
     drySlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v * 100.0)); };
-    drySlider.valueFromTextFunction = [](const juce::String& t) { return t.getDoubleValue() / 100.0; };
-
     wetSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v * 100.0)); };
-    wetSlider.valueFromTextFunction = [](const juce::String& t) { return t.getDoubleValue() / 100.0; };
-
     duckingSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v * 100.0)); };
-    duckingSlider.valueFromTextFunction = [](const juce::String& t) { return t.getDoubleValue() / 100.0; };
-
-    timeSlider.onValueChange = [this]() {
-        float ms = static_cast<float>(timeSlider.getValue());
-        delayDisplay.setText (getTimeFractionString (ms));
-        timeSlider.repaint();
-    };
 
     int currentMode = static_cast<int>(audioProcessor.apvts.getRawParameterValue ("MODE")->load());
     updateModeButtons (currentMode);
@@ -131,6 +127,49 @@ DelayAudioProcessorEditor::~DelayAudioProcessorEditor()
 {
     stopTimer();
     setLookAndFeel (nullptr);
+}
+
+void DelayAudioProcessorEditor::applyPreset (int presetIndex)
+{
+    auto setParam = [this](const juce::String& paramID, float normVal) {
+        if (auto* param = audioProcessor.apvts.getParameter (paramID))
+            param->setValueNotifyingHost (normVal);
+    };
+
+    switch (presetIndex)
+    {
+        case 1: // Default
+            setParam ("PAN", 0.5f); setParam ("SMOOTH", 0.5f); setParam ("DELAY_TIME", 0.11f);
+            setParam ("FEEDBACK", 0.5f); setParam ("DRY", 1.0f); setParam ("WET", 1.0f); setParam ("DUCKING", 0.0f);
+            updateModeButtons (0);
+            break;
+
+        case 2: // Slapback
+            setParam ("PAN", 0.5f); setParam ("DELAY_TIME", 0.02f); setParam ("FEEDBACK", 0.15f);
+            setParam ("DRY", 1.0f); setParam ("WET", 0.8f); setParam ("DUCKING", 0.0f);
+            updateModeButtons (1);
+            break;
+
+        case 3: // Vocal Ducking
+            setParam ("PAN", 0.5f); setParam ("DELAY_TIME", 0.18f); setParam ("FEEDBACK", 0.60f);
+            setParam ("DRY", 1.0f); setParam ("WET", 0.9f); setParam ("DUCKING", 0.65f);
+            updateModeButtons (0);
+            break;
+
+        case 4: // Tape Wash
+            setParam ("PAN", 0.5f); setParam ("DELAY_TIME", 0.25f); setParam ("FEEDBACK", 0.75f);
+            setParam ("DRY", 1.0f); setParam ("WET", 0.7f); setParam ("DUCKING", 0.0f);
+            updateModeButtons (2);
+            break;
+
+        case 5: // Ping-Pong Lead
+            setParam ("PAN", 0.5f); setParam ("DELAY_TIME", 0.11f); setParam ("FEEDBACK", 0.50f);
+            setParam ("DRY", 1.0f); setParam ("WET", 1.0f); setParam ("DUCKING", 0.20f);
+            if (auto* pp = audioProcessor.apvts.getParameter ("PINGPONG"))
+                pp->setValueNotifyingHost (1.0f);
+            updateModeButtons (0);
+            break;
+    }
 }
 
 void DelayAudioProcessorEditor::updateModeButtons (int selectedIndex)
@@ -146,8 +185,12 @@ void DelayAudioProcessorEditor::updateModeButtons (int selectedIndex)
 
 void DelayAudioProcessorEditor::timerCallback()
 {
+    // 30 FPS update keeps SliderAttachments working without breaking callbacks
     leftMeter.setLevel (audioProcessor.getLeftLevel());
     rightMeter.setLevel (audioProcessor.getRightLevel());
+
+    float ms = static_cast<float>(timeSlider.getValue());
+    delayDisplay.setText (getTimeFractionString (ms));
 }
 
 void DelayAudioProcessorEditor::paint (juce::Graphics& g)
@@ -163,32 +206,29 @@ void DelayAudioProcessorEditor::resized()
     leftMeter.setBounds (10, 42, 8, 128);
     rightMeter.setBounds (620, 42, 8, 128);
 
-    // Left Small Knobs
     panSlider.setBounds (40, 80, 48, 48);
     panLabel.setBounds (32, 130, 64, 14);
 
     smoothSlider.setBounds (104, 80, 48, 48);
     smoothLabel.setBounds (96, 130, 64, 14);
 
-    // TIME Knob
     timeSlider.setBounds (174, 72, 72, 72);
     timeLabel.setBounds (178, 146, 64, 14);
 
-    // Center Section
-    delayDisplay.setBounds (269, 68, 100, 24);
+    // Preset Manager Bar atop Center LCD
+    presetSelector.setBounds (269, 44, 100, 18);
+    delayDisplay.setBounds (269, 66, 100, 24);
 
-    digitalBtn.setBounds (260, 96, 38, 15);
-    analogBtn.setBounds (300, 96, 38, 15);
-    tapeBtn.setBounds (340, 96, 38, 15);
+    digitalBtn.setBounds (260, 94, 38, 15);
+    analogBtn.setBounds (300, 94, 38, 15);
+    tapeBtn.setBounds (340, 94, 38, 15);
 
-    pingPongButton.setBounds (311, 116, 16, 16);
-    pingPongLabel.setBounds (269, 133, 100, 14);
+    pingPongButton.setBounds (311, 114, 16, 16);
+    pingPongLabel.setBounds (269, 131, 100, 14);
 
-    // FEEDBACK Knob
     feedbackSlider.setBounds (390, 72, 72, 72);
     feedbackLabel.setBounds (394, 146, 64, 14);
 
-    // Right Small Knobs (Shifted inward to clear border artwork)
     drySlider.setBounds (470, 68, 44, 44);
     dryLabel.setBounds (460, 114, 64, 14);
 
