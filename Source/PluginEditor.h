@@ -17,33 +17,37 @@ public:
 private:
     void timerCallback() override;
     void updateModeButtons (int selectedIndex);
+    void applyPreset (int presetIndex);
 
     DelayAudioProcessor& audioProcessor;
     SkellLookAndFeel skellLookAndFeel;
     juce::Image bgImage;
 
-    // Meters & Display
+    // Meters & LCD Center Screen
     SkellMeter leftMeter, rightMeter;
     SkellDisplay delayDisplay;
+
+    // Preset Selector Dropdown
+    juce::ComboBox presetSelector;
 
     // Sliders
     juce::Slider panSlider, smoothSlider;
     juce::Slider timeSlider, feedbackSlider;
-    juce::Slider duckingSlider, drySlider, wetSlider;
+    juce::Slider drySlider, wetSlider, duckingSlider;
     juce::ToggleButton pingPongButton { "" };
 
-    // Mode Buttons
+    // Mode Selector TextButtons
     juce::TextButton digitalBtn { "DIGITAL" }, analogBtn { "ANALOG" }, tapeBtn { "TAPE" };
 
-    // Neon Green Labels
+    // Labels
     juce::Label panLabel, smoothLabel, timeLabel, feedbackLabel;
-    juce::Label duckingLabel, dryLabel, wetLabel, pingPongLabel;
+    juce::Label dryLabel, wetLabel, duckingLabel, pingPongLabel;
 
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
 
     std::unique_ptr<SliderAttachment> panAttach, smoothAttach, timeAttach, feedbackAttach;
-    std::unique_ptr<SliderAttachment> duckingAttach, dryAttach, wetAttach;
+    std::unique_ptr<SliderAttachment> dryAttach, wetAttach, duckingAttach;
     std::unique_ptr<ButtonAttachment> pingPongAttach;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DelayAudioProcessorEditor)
