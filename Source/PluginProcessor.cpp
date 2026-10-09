@@ -28,7 +28,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout DelayAudioProcessor::createP
     params.push_back (std::make_unique<juce::AudioParameterFloat>(
         "SMOOTH", "Smoothing", juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 50.0f));
 
-    // TIME range with 250ms (1/8 note) centered at 12 o'clock
     juce::NormalisableRange<float> timeRange (31.25f, 2000.0f, 0.1f);
     timeRange.setSkewForCentre (250.0f);
 
@@ -80,7 +79,6 @@ void DelayAudioProcessor::prepareToPlay (double sr, int samplesPerBlock)
     writePosition = 0;
     duckEnvelope = 0.0f;
 
-    // Smoother initialized ONCE here to fix the frozen delay bug
     smoothDelayTime.reset (sampleRate, 0.05);
 }
 
@@ -102,6 +100,16 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     juce::ignoreUnused (midiMessages);
     juce::ScopedNoDenormals noDenormals;
 
+    // Fetch Host BPM if playhead is available
+    if (auto* playHead = getPlayHead())
+    {
+        if (auto position = playHead->getPosition())
+        {
+            if (position->getBpm().hasValue())
+                currentBpm = *position->getBpm();
+        }
+    }
+
     const int totalNumInputChannels  = getTotalNumInputChannels();
     const int totalNumOutputChannels = getTotalNumOutputChannels();
     const int numSamples = buffer.getNumSamples();
@@ -110,6 +118,7 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         buffer.clear (i, 0, numSamples);
 
     const float panVal       = apvts.getRawParameterValue ("PAN")->load();
+    const float smoothVal    = apvts.getRawParameterValue ("SMOOTH")->load();
     const float targetTimeMs = apvts.getRawParameterValue ("DELAY_TIME")->load();
     const float feedbackVal  = juce::jmin (0.98f, apvts.getRawParameterValue ("FEEDBACK")->load());
     const float duckingVal   = apvts.getRawParameterValue ("DUCKING")->load();
@@ -118,7 +127,8 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     const bool  isPingPong   = apvts.getRawParameterValue ("PINGPONG")->load() > 0.5f;
     const int   modeVal      = static_cast<int>(apvts.getRawParameterValue ("MODE")->load());
 
-    // Update smoother target sample delay
+    float rampTime = juce::jmap (smoothVal, 0.0f, 100.0f, 0.005f, 0.200f);
+    smoothDelayTime.reset (sampleRate, rampTime);
     smoothDelayTime.setTargetValue ((targetTimeMs / 1000.0f) * static_cast<float>(sampleRate));
 
     const int delayBufLen = delayBuffer.getNumSamples();
