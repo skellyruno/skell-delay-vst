@@ -30,7 +30,7 @@ public:
         g.setColour (juce::Colour (0xff081404));
         g.strokePath (bgTrack, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
-        // 2. Active Illuminated Lime Arc (#39FF14)
+        // 2. Active Lime Green Arc
         const bool isBipolar = (slider.getMinimum() < 0.0 && slider.getMaximum() > 0.0);
         const float zeroAngle = isBipolar ? (rotaryStartAngle + rotaryEndAngle) * 0.5f : rotaryStartAngle;
 
@@ -78,11 +78,11 @@ public:
         g.setColour (isInteracting ? juce::Colour (0xffffffff) : juce::Colour (0xff39ff14));
         g.fillPath (p);
 
-        // 5. Centered Value Readout (Only displayed when actively hovering/turning)
+        // 5. Centered Value Readout (HOVER / TURN ONLY)
         if (isInteracting)
         {
             juce::String valText = slider.getTextFromValue (slider.getValue());
-            float fontSize = juce::jlimit (9.0f, 14.0f, capRadius * 0.70f);
+            float fontSize = juce::jlimit (9.0f, 13.0f, capRadius * 0.65f);
 
             g.setFont (juce::FontOptions (fontSize).withStyle ("Bold"));
             g.setColour (juce::Colour (0xffffffff));
