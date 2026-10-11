@@ -35,12 +35,19 @@ private:
     float level = 0.0f;
 };
 
-// --- Pure Tap Visualizer Screen (Time Text Removed) ---
+// --- Upgraded Pro LCD Center Display ---
 class SkellDisplay : public juce::Component
 {
 public:
-    void setParams (float feedback, float ducking)
+    void setText (const juce::String& newText)
     {
+        fractionText = newText;
+        repaint();
+    }
+
+    void setParams (float timeMs, float feedback, float ducking)
+    {
+        timeValueMs = timeMs;
         feedbackVal = feedback;
         duckingVal = ducking;
         repaint();
@@ -50,34 +57,46 @@ public:
     {
         auto bounds = getLocalBounds().toFloat();
 
-        // Dark LCD Frame
-        g.setColour (juce::Colour (0xff050c03));
+        // Dark CRT Bevel Frame
+        g.setColour (juce::Colour (0xff040802));
         g.fillRoundedRectangle (bounds, 4.0f);
-        g.setColour (juce::Colour (0xff39ff14).withAlpha (0.4f));
+        g.setColour (juce::Colour (0xff39ff14).withAlpha (0.45f));
         g.drawRoundedRectangle (bounds, 4.0f, 1.25f);
 
-        // Animated Delay Tap Echo Bars
-        auto visualArea = bounds.reduced (6.0f);
+        // Background Tap Echo Visualizer Bars
+        auto barArea = bounds.reduced (4.0f, 3.0f);
         const int numTaps = 8;
-        const float barWidth = 5.0f;
-        const float spacing = (visualArea.getWidth() - (numTaps * barWidth)) / (numTaps - 1);
+        const float barWidth = 4.0f;
+        const float spacing = (barArea.getWidth() - (numTaps * barWidth)) / (numTaps - 1);
 
         for (int i = 0; i < numTaps; ++i)
         {
             float decayFactor = std::pow (juce::jlimit (0.1f, 0.95f, feedbackVal), static_cast<float>(i));
-            float duckFactor = 1.0f - (duckingVal * 0.5f);
+            float duckFactor = 1.0f - (duckingVal * 0.4f);
             float heightPercent = decayFactor * duckFactor;
 
-            float barHeight = visualArea.getHeight() * 0.75f * heightPercent;
-            float xPos = visualArea.getX() + i * (barWidth + spacing);
-            float yPos = visualArea.getBottom() - barHeight - 3.0f;
+            float barHeight = barArea.getHeight() * 0.85f * heightPercent;
+            float xPos = barArea.getX() + i * (barWidth + spacing);
+            float yPos = barArea.getBottom() - barHeight - 1.0f;
 
-            g.setColour (juce::Colour (0xff39ff14).withAlpha (0.25f + (0.75f * decayFactor)));
-            g.fillRoundedRectangle (xPos, yPos, barWidth, barHeight, 1.5f);
+            g.setColour (juce::Colour (0xff39ff14).withAlpha (0.15f + (0.6f * decayFactor)));
+            g.fillRoundedRectangle (xPos, yPos, barWidth, barHeight, 1.0f);
         }
+
+        // Top Row: Musical Note Fraction (e.g. 1/8)
+        g.setColour (juce::Colour (0xff39ff14));
+        g.setFont (juce::FontOptions (15.0f).withStyle ("Bold Italic"));
+        g.drawText (fractionText, bounds.removeFromTop (17.0f), juce::Justification::centred, true);
+
+        // Bottom Row: Exact Milliseconds Readout (e.g. 250.0 ms)
+        g.setColour (juce::Colour (0xffffffff).withAlpha (0.8f));
+        g.setFont (juce::FontOptions (9.5f).withStyle ("Bold"));
+        g.drawText (juce::String (timeValueMs, 1) + " ms", bounds, juce::Justification::centred, true);
     }
 
 private:
+    juce::String fractionText = "1/8";
+    float timeValueMs = 250.0f;
     float feedbackVal = 0.5f;
     float duckingVal = 0.0f;
 };
