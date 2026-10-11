@@ -79,10 +79,9 @@ void DelayAudioProcessor::prepareToPlay (double sr, int samplesPerBlock)
     writePosition = 0;
     duckEnvelope = 0.0f;
 
-    // Initialize smoother with default 250ms delay samples
-    float initialDelaySamples = (250.0f / 1000.0f) * static_cast<float>(sampleRate);
+    // Initialize smoother ONCE here
     smoothDelayTime.reset (sampleRate, 0.05);
-    smoothDelayTime.setCurrentAndTargetValue (initialDelaySamples);
+    smoothDelayTime.setCurrentAndTargetValue ((250.0f / 1000.0f) * static_cast<float>(sampleRate));
 }
 
 void DelayAudioProcessor::releaseResources() {}
@@ -90,12 +89,10 @@ void DelayAudioProcessor::releaseResources() {}
 #ifndef JucePlugin_PreferredChannelConfigurations
 bool DelayAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
-    // Support mono or stereo output
     if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::mono()
      && layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
         return false;
 
-    // Allow mono-in to stereo-out, or matching mono/stereo layouts
     if (layouts.getMainInputChannelSet() == juce::AudioChannelSet::mono()
      && layouts.getMainOutputChannelSet() == juce::AudioChannelSet::stereo())
         return true;
@@ -116,7 +113,6 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         return;
 
     const float panVal       = apvts.getRawParameterValue ("PAN")->load();
-    const float smoothVal    = apvts.getRawParameterValue ("SMOOTH")->load();
     const float targetTimeMs = apvts.getRawParameterValue ("DELAY_TIME")->load();
     const float feedbackVal  = apvts.getRawParameterValue ("FEEDBACK")->load();
     const float duckingVal   = apvts.getRawParameterValue ("DUCKING")->load();
@@ -125,8 +121,7 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     const bool  isPingPong   = apvts.getRawParameterValue ("PINGPONG")->load() > 0.5f;
     const int   modeVal      = static_cast<int>(apvts.getRawParameterValue ("MODE")->load());
 
-    float rampTime = juce::jmap (smoothVal, 0.0f, 100.0f, 0.005f, 0.200f);
-    smoothDelayTime.reset (sampleRate, rampTime);
+    // ONLY set target value here (DO NOT call .reset() inside processBlock!)
     smoothDelayTime.setTargetValue ((targetTimeMs / 1000.0f) * static_cast<float>(sampleRate));
 
     const int delayBufLen = delayBuffer.getNumSamples();
