@@ -38,7 +38,7 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     addAndMakeVisible (rightMeter);
     addAndMakeVisible (delayDisplay);
 
-    // Preset Menu Configuration
+    // Clean Preset Selector Box
     presetSelector.addItem ("SKELL Default", 1);
     presetSelector.addItem ("Slapback Echo", 2);
     presetSelector.addItem ("Vocal Ducking", 3);
@@ -46,8 +46,8 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     presetSelector.addItem ("Ping-Pong Lead", 5);
     presetSelector.setSelectedId (1, juce::dontSendNotification);
 
-    presetSelector.setColour (juce::ComboBox::backgroundColourId, juce::Colour (0xff081404));
-    presetSelector.setColour (juce::ComboBox::outlineColourId, juce::Colour (0xff39ff14));
+    presetSelector.setColour (juce::ComboBox::backgroundColourId, juce::Colour (0xff050c03));
+    presetSelector.setColour (juce::ComboBox::outlineColourId, juce::Colour (0xff155e05));
     presetSelector.setColour (juce::ComboBox::textColourId, juce::Colour (0xff39ff14));
     presetSelector.setColour (juce::ComboBox::arrowColourId, juce::Colour (0xff39ff14));
 
@@ -97,7 +97,6 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     analogBtn.onClick  = [this]() { updateModeButtons (1); };
     tapeBtn.onClick    = [this]() { updateModeButtons (2); };
 
-    // Attachments
     panAttach      = std::make_unique<SliderAttachment>(audioProcessor.apvts, "PAN", panSlider);
     smoothAttach   = std::make_unique<SliderAttachment>(audioProcessor.apvts, "SMOOTH", smoothSlider);
     timeAttach     = std::make_unique<SliderAttachment>(audioProcessor.apvts, "DELAY_TIME", timeSlider);
@@ -107,7 +106,6 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     duckingAttach  = std::make_unique<SliderAttachment>(audioProcessor.apvts, "DUCKING", duckingSlider);
     pingPongAttach = std::make_unique<ButtonAttachment>(audioProcessor.apvts, "PINGPONG", pingPongButton);
 
-    // Text Formatters
     panSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt ((v + 1.0) * 50.0)); };
     smoothSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v)); };
     timeSlider.textFromValueFunction = [](double v) { return getTimeFractionString (static_cast<float>(v)); };
@@ -138,37 +136,28 @@ void DelayAudioProcessorEditor::applyPreset (int presetIndex)
 
     switch (presetIndex)
     {
-        case 1: // Default
+        case 1:
             setParam ("PAN", 0.5f); setParam ("SMOOTH", 0.5f); setParam ("DELAY_TIME", 0.11f);
             setParam ("FEEDBACK", 0.5f); setParam ("DRY", 1.0f); setParam ("WET", 1.0f); setParam ("DUCKING", 0.0f);
-            updateModeButtons (0);
-            break;
-
-        case 2: // Slapback
+            updateModeButtons (0); break;
+        case 2:
             setParam ("PAN", 0.5f); setParam ("DELAY_TIME", 0.02f); setParam ("FEEDBACK", 0.15f);
             setParam ("DRY", 1.0f); setParam ("WET", 0.8f); setParam ("DUCKING", 0.0f);
-            updateModeButtons (1);
-            break;
-
-        case 3: // Vocal Ducking
+            updateModeButtons (1); break;
+        case 3:
             setParam ("PAN", 0.5f); setParam ("DELAY_TIME", 0.18f); setParam ("FEEDBACK", 0.60f);
             setParam ("DRY", 1.0f); setParam ("WET", 0.9f); setParam ("DUCKING", 0.65f);
-            updateModeButtons (0);
-            break;
-
-        case 4: // Tape Wash
+            updateModeButtons (0); break;
+        case 4:
             setParam ("PAN", 0.5f); setParam ("DELAY_TIME", 0.25f); setParam ("FEEDBACK", 0.75f);
             setParam ("DRY", 1.0f); setParam ("WET", 0.7f); setParam ("DUCKING", 0.0f);
-            updateModeButtons (2);
-            break;
-
-        case 5: // Ping-Pong Lead
+            updateModeButtons (2); break;
+        case 5:
             setParam ("PAN", 0.5f); setParam ("DELAY_TIME", 0.11f); setParam ("FEEDBACK", 0.50f);
             setParam ("DRY", 1.0f); setParam ("WET", 1.0f); setParam ("DUCKING", 0.20f);
             if (auto* pp = audioProcessor.apvts.getParameter ("PINGPONG"))
                 pp->setValueNotifyingHost (1.0f);
-            updateModeButtons (0);
-            break;
+            updateModeButtons (0); break;
     }
 }
 
@@ -188,12 +177,9 @@ void DelayAudioProcessorEditor::timerCallback()
     leftMeter.setLevel (audioProcessor.getLeftLevel());
     rightMeter.setLevel (audioProcessor.getRightLevel());
 
-    float ms = static_cast<float>(timeSlider.getValue());
     float fb = static_cast<float>(feedbackSlider.getValue());
     float duck = static_cast<float>(duckingSlider.getValue());
-
     delayDisplay.setParams (fb, duck);
-    delayDisplay.setText (getTimeFractionString (ms));
 }
 
 void DelayAudioProcessorEditor::paint (juce::Graphics& g)
@@ -218,16 +204,16 @@ void DelayAudioProcessorEditor::resized()
     timeSlider.setBounds (174, 72, 72, 72);
     timeLabel.setBounds (178, 146, 64, 14);
 
-    // Preset Manager Bar atop Center LCD
-    presetSelector.setBounds (269, 44, 100, 18);
-    delayDisplay.setBounds (269, 66, 100, 24);
+    // Centered Preset dropdown & animated Tap Visualizer screen
+    presetSelector.setBounds (269, 52, 100, 18);
+    delayDisplay.setBounds (269, 74, 100, 22);
 
-    digitalBtn.setBounds (260, 94, 38, 15);
-    analogBtn.setBounds (300, 94, 38, 15);
-    tapeBtn.setBounds (340, 94, 38, 15);
+    digitalBtn.setBounds (260, 101, 38, 15);
+    analogBtn.setBounds (300, 101, 38, 15);
+    tapeBtn.setBounds (340, 101, 38, 15);
 
-    pingPongButton.setBounds (311, 114, 16, 16);
-    pingPongLabel.setBounds (269, 131, 100, 14);
+    pingPongButton.setBounds (311, 121, 16, 16);
+    pingPongLabel.setBounds (269, 138, 100, 14);
 
     feedbackSlider.setBounds (390, 72, 72, 72);
     feedbackLabel.setBounds (394, 146, 64, 14);
