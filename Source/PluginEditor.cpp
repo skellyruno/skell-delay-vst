@@ -185,11 +185,14 @@ void DelayAudioProcessorEditor::updateModeButtons (int selectedIndex)
 
 void DelayAudioProcessorEditor::timerCallback()
 {
-    // 30 FPS update keeps SliderAttachments working without breaking callbacks
     leftMeter.setLevel (audioProcessor.getLeftLevel());
     rightMeter.setLevel (audioProcessor.getRightLevel());
 
     float ms = static_cast<float>(timeSlider.getValue());
+    float fb = static_cast<float>(feedbackSlider.getValue());
+    float duck = static_cast<float>(duckingSlider.getValue());
+
+    delayDisplay.setParams (fb, duck);
     delayDisplay.setText (getTimeFractionString (ms));
 }
 
