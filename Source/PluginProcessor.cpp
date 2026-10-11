@@ -69,6 +69,7 @@ void DelayAudioProcessor::changeProgramName (int, const juce::String&) {}
 
 void DelayAudioProcessor::prepareToPlay (double sr, int samplesPerBlock)
 {
+    juce::ignoreUnused (samplesPerBlock);
     sampleRate = sr;
 
     const int maxDelaySamples = static_cast<int>(sampleRate * 2.5);
@@ -116,9 +117,8 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     const bool  isPingPong   = apvts.getRawParameterValue ("PINGPONG")->load() > 0.5f;
     const int   modeVal      = static_cast<int>(apvts.getRawParameterValue ("MODE")->load());
 
-    // Update smoother ramp time if smooth knob changes
     float rampTime = juce::jmap (smoothVal, 0.0f, 100.0f, 0.005f, 0.200f);
-    smoothDelayTime.setrampDurationSeconds (rampTime);
+    smoothDelayTime.reset (sampleRate, rampTime);
     smoothDelayTime.setTargetValue ((targetTimeMs / 1000.0f) * static_cast<float>(sampleRate));
 
     const int delayBufLen = delayBuffer.getNumSamples();
