@@ -38,22 +38,6 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     addAndMakeVisible (rightMeter);
     addAndMakeVisible (delayDisplay);
 
-    // Preset Selector Box
-    presetSelector.addItem ("SKELL Default", 1);
-    presetSelector.addItem ("Slapback Echo", 2);
-    presetSelector.addItem ("Vocal Ducking", 3);
-    presetSelector.addItem ("Tape Wash",    4);
-    presetSelector.addItem ("Ping-Pong Lead", 5);
-    presetSelector.setSelectedId (1, juce::dontSendNotification);
-
-    presetSelector.setColour (juce::ComboBox::backgroundColourId, juce::Colour (0xff050c03));
-    presetSelector.setColour (juce::ComboBox::outlineColourId, juce::Colour (0xff155e05));
-    presetSelector.setColour (juce::ComboBox::textColourId, juce::Colour (0xff39ff14));
-    presetSelector.setColour (juce::ComboBox::arrowColourId, juce::Colour (0xff39ff14));
-
-    presetSelector.onChange = [this]() { applyPreset (presetSelector.getSelectedId()); };
-    addAndMakeVisible (presetSelector);
-
     auto setupKnob = [this](juce::Slider& s, juce::Label& l, const juce::String& text) {
         s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
         s.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
@@ -127,40 +111,6 @@ DelayAudioProcessorEditor::~DelayAudioProcessorEditor()
     setLookAndFeel (nullptr);
 }
 
-void DelayAudioProcessorEditor::applyPreset (int presetIndex)
-{
-    auto setParam = [this](const juce::String& paramID, float normVal) {
-        if (auto* param = audioProcessor.apvts.getParameter (paramID))
-            param->setValueNotifyingHost (normVal);
-    };
-
-    switch (presetIndex)
-    {
-        case 1:
-            setParam ("PAN", 0.5f); setParam ("SMOOTH", 0.5f); setParam ("DELAY_TIME", 0.11f);
-            setParam ("FEEDBACK", 0.5f); setParam ("DRY", 1.0f); setParam ("WET", 1.0f); setParam ("DUCKING", 0.0f);
-            updateModeButtons (0); break;
-        case 2:
-            setParam ("PAN", 0.5f); setParam ("DELAY_TIME", 0.02f); setParam ("FEEDBACK", 0.15f);
-            setParam ("DRY", 1.0f); setParam ("WET", 0.8f); setParam ("DUCKING", 0.0f);
-            updateModeButtons (1); break;
-        case 3:
-            setParam ("PAN", 0.5f); setParam ("DELAY_TIME", 0.18f); setParam ("FEEDBACK", 0.60f);
-            setParam ("DRY", 1.0f); setParam ("WET", 0.9f); setParam ("DUCKING", 0.65f);
-            updateModeButtons (0); break;
-        case 4:
-            setParam ("PAN", 0.5f); setParam ("DELAY_TIME", 0.25f); setParam ("FEEDBACK", 0.75f);
-            setParam ("DRY", 1.0f); setParam ("WET", 0.7f); setParam ("DUCKING", 0.0f);
-            updateModeButtons (2); break;
-        case 5:
-            setParam ("PAN", 0.5f); setParam ("DELAY_TIME", 0.11f); setParam ("FEEDBACK", 0.50f);
-            setParam ("DRY", 1.0f); setParam ("WET", 1.0f); setParam ("DUCKING", 0.20f);
-            if (auto* pp = audioProcessor.apvts.getParameter ("PINGPONG"))
-                pp->setValueNotifyingHost (1.0f);
-            updateModeButtons (0); break;
-    }
-}
-
 void DelayAudioProcessorEditor::updateModeButtons (int selectedIndex)
 {
     auto* modeParam = audioProcessor.apvts.getParameter ("MODE");
@@ -204,16 +154,15 @@ void DelayAudioProcessorEditor::resized()
     timeSlider.setBounds (174, 72, 72, 72);
     timeLabel.setBounds (178, 146, 64, 14);
 
-    // Better preset placement: Cleanly integrated into the center panel stack
-    presetSelector.setBounds (269, 48, 100, 18);
-    delayDisplay.setBounds (269, 70, 100, 22);
+    // Centered Tap Visualizer Screen layout (Presets removed)
+    delayDisplay.setBounds (269, 56, 100, 26);
 
-    digitalBtn.setBounds (260, 96, 38, 15);
-    analogBtn.setBounds (300, 96, 38, 15);
-    tapeBtn.setBounds (340, 96, 38, 15);
+    digitalBtn.setBounds (260, 92, 38, 15);
+    analogBtn.setBounds (300, 92, 38, 15);
+    tapeBtn.setBounds (340, 92, 38, 15);
 
-    pingPongButton.setBounds (311, 116, 16, 16);
-    pingPongLabel.setBounds (269, 134, 100, 14);
+    pingPongButton.setBounds (311, 112, 16, 16);
+    pingPongLabel.setBounds (269, 129, 100, 14);
 
     feedbackSlider.setBounds (390, 72, 72, 72);
     feedbackLabel.setBounds (394, 146, 64, 14);
