@@ -38,7 +38,7 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     addAndMakeVisible (rightMeter);
     addAndMakeVisible (delayDisplay);
 
-    // Clean Preset Selector Box
+    // Preset Selector Box
     presetSelector.addItem ("SKELL Default", 1);
     presetSelector.addItem ("Slapback Echo", 2);
     presetSelector.addItem ("Vocal Ducking", 3);
@@ -110,8 +110,8 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     smoothSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v)); };
     timeSlider.textFromValueFunction = [](double v) { return getTimeFractionString (static_cast<float>(v)); };
     feedbackSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v * 100.0)); };
-    drySlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v * 100.0)); };
     wetSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v * 100.0)); };
+    drySlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v * 100.0)); };
     duckingSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v * 100.0)); };
 
     int currentMode = static_cast<int>(audioProcessor.apvts.getRawParameterValue ("MODE")->load());
@@ -204,16 +204,16 @@ void DelayAudioProcessorEditor::resized()
     timeSlider.setBounds (174, 72, 72, 72);
     timeLabel.setBounds (178, 146, 64, 14);
 
-    // Centered Preset dropdown & animated Tap Visualizer screen
-    presetSelector.setBounds (269, 52, 100, 18);
-    delayDisplay.setBounds (269, 74, 100, 22);
+    // Better preset placement: Cleanly integrated into the center panel stack
+    presetSelector.setBounds (269, 48, 100, 18);
+    delayDisplay.setBounds (269, 70, 100, 22);
 
-    digitalBtn.setBounds (260, 101, 38, 15);
-    analogBtn.setBounds (300, 101, 38, 15);
-    tapeBtn.setBounds (340, 101, 38, 15);
+    digitalBtn.setBounds (260, 96, 38, 15);
+    analogBtn.setBounds (300, 96, 38, 15);
+    tapeBtn.setBounds (340, 96, 38, 15);
 
-    pingPongButton.setBounds (311, 121, 16, 16);
-    pingPongLabel.setBounds (269, 138, 100, 14);
+    pingPongButton.setBounds (311, 116, 16, 16);
+    pingPongLabel.setBounds (269, 134, 100, 14);
 
     feedbackSlider.setBounds (390, 72, 72, 72);
     feedbackLabel.setBounds (394, 146, 64, 14);
