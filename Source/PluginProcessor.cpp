@@ -104,8 +104,11 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     const int totalNumInputChannels  = getTotalNumInputChannels();
     const int totalNumOutputChannels = getTotalNumOutputChannels();
 
-    for (int i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
-        buffer.clear (i, 0, numSamples);
+    if (totalNumInputChannels == 0)
+    {
+        buffer.clear();
+        return;
+    }
 
     const float panVal       = apvts.getRawParameterValue ("PAN")->load();
     const float smoothVal    = apvts.getRawParameterValue ("SMOOTH")->load();
@@ -132,8 +135,11 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     const float duckAttack  = 1.0f - std::exp (-1.0f / (0.010f * static_cast<float>(sampleRate)));
     const float duckRelease = 1.0f - std::exp (-1.0f / (0.150f * static_cast<float>(sampleRate)));
 
-    auto* leftChannel  = buffer.getWritePointer (0);
-    auto* rightChannel = totalNumOutputChannels > 1 ? buffer.getWritePointer (1) : leftChannel;
+    auto* leftIn  = buffer.getReadPointer (0);
+    auto* rightIn = totalNumInputChannels > 1 ? buffer.getReadPointer (1) : leftIn;
+
+    auto* leftOut  = buffer.getWritePointer (0);
+    auto* rightOut = totalNumOutputChannels > 1 ? buffer.getWritePointer (1) : leftOut;
 
     auto* delayLeftPtr  = delayBuffer.getWritePointer (0);
     auto* delayRightPtr = delayBuffer.getWritePointer (1);
@@ -156,8 +162,8 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         if (modeVal == 1)      { delayLeft = std::tanh (delayLeft * 1.15f) * 0.95f; delayRight = std::tanh (delayRight * 1.15f) * 0.95f; }
         else if (modeVal == 2) { delayLeft = std::tanh (delayLeft * 1.40f) * 0.85f; delayRight = std::tanh (delayRight * 1.40f) * 0.85f; }
 
-        float inLeft  = leftChannel[sample];
-        float inRight = rightChannel[sample];
+        float inLeft  = leftIn[sample];
+        float inRight = rightIn[sample];
 
         float inLevel = std::max (std::abs (inLeft), std::abs (inRight));
         if (inLevel > duckEnvelope)
@@ -185,8 +191,8 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         float outLeft  = (inLeft  * dryVal) + wetOutLeft;
         float outRight = (inRight * dryVal) + wetOutRight;
 
-        leftChannel[sample]  = outLeft;
-        rightChannel[sample] = outRight;
+        leftOut[sample]  = outLeft;
+        rightOut[sample] = outRight;
 
         maxLeftPeak  = std::max (maxLeftPeak,  std::abs (outLeft));
         maxRightPeak = std::max (maxRightPeak, std::abs (outRight));
