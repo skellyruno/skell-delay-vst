@@ -79,7 +79,10 @@ void DelayAudioProcessor::prepareToPlay (double sr, int samplesPerBlock)
     writePosition = 0;
     duckEnvelope = 0.0f;
 
+    // Initialize smoother with default 250ms delay samples
+    float initialDelaySamples = (250.0f / 1000.0f) * static_cast<float>(sampleRate);
     smoothDelayTime.reset (sampleRate, 0.05);
+    smoothDelayTime.setCurrentAndTargetValue (initialDelaySamples);
 }
 
 void DelayAudioProcessor::releaseResources() {}
@@ -87,11 +90,17 @@ void DelayAudioProcessor::releaseResources() {}
 #ifndef JucePlugin_PreferredChannelConfigurations
 bool DelayAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
+    // Support mono or stereo output
     if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::mono()
      && layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
         return false;
 
-    return layouts.getMainOutputChannelSet() == layouts.getMainInputChannelSet();
+    // Allow mono-in to stereo-out, or matching mono/stereo layouts
+    if (layouts.getMainInputChannelSet() == juce::AudioChannelSet::mono()
+     && layouts.getMainOutputChannelSet() == juce::AudioChannelSet::stereo())
+        return true;
+
+    return layouts.getMainInputChannelSet() == layouts.getMainOutputChannelSet();
 }
 #endif
 
@@ -101,14 +110,10 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     juce::ScopedNoDenormals noDenormals;
 
     const int numSamples = buffer.getNumSamples();
-    const int totalNumInputChannels  = getTotalNumInputChannels();
-    const int totalNumOutputChannels = getTotalNumOutputChannels();
+    const int numChannels = buffer.getNumChannels();
 
-    if (totalNumInputChannels == 0)
-    {
-        buffer.clear();
+    if (numChannels == 0)
         return;
-    }
 
     const float panVal       = apvts.getRawParameterValue ("PAN")->load();
     const float smoothVal    = apvts.getRawParameterValue ("SMOOTH")->load();
@@ -125,8 +130,7 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     smoothDelayTime.setTargetValue ((targetTimeMs / 1000.0f) * static_cast<float>(sampleRate));
 
     const int delayBufLen = delayBuffer.getNumSamples();
-    float maxLeftPeak = 0.0f;
-    float maxRightPeak = 0.0f;
+    float maxPeak = 0.0f;
 
     const float quarterPi = juce::MathConstants<float>::pi * 0.25f;
     float leftPan  = std::cos ((panVal + 1.0f) * quarterPi);
@@ -136,10 +140,10 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     const float duckRelease = 1.0f - std::exp (-1.0f / (0.150f * static_cast<float>(sampleRate)));
 
     auto* leftIn  = buffer.getReadPointer (0);
-    auto* rightIn = totalNumInputChannels > 1 ? buffer.getReadPointer (1) : leftIn;
+    auto* rightIn = numChannels > 1 ? buffer.getReadPointer (1) : leftIn;
 
     auto* leftOut  = buffer.getWritePointer (0);
-    auto* rightOut = totalNumOutputChannels > 1 ? buffer.getWritePointer (1) : leftOut;
+    auto* rightOut = numChannels > 1 ? buffer.getWritePointer (1) : leftOut;
 
     auto* delayLeftPtr  = delayBuffer.getWritePointer (0);
     auto* delayRightPtr = delayBuffer.getWritePointer (1);
@@ -194,14 +198,13 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         leftOut[sample]  = outLeft;
         rightOut[sample] = outRight;
 
-        maxLeftPeak  = std::max (maxLeftPeak,  std::abs (outLeft));
-        maxRightPeak = std::max (maxRightPeak, std::abs (outRight));
+        maxPeak = std::max ({ maxPeak, std::abs (outLeft), std::abs (outRight) });
 
         writePosition = (writePosition + 1) % delayBufLen;
     }
 
-    leftLevel.set (maxLeftPeak);
-    rightLevel.set (maxRightPeak);
+    leftLevel.set (maxPeak);
+    rightLevel.set (maxPeak);
 }
 
 float DelayAudioProcessor::getLeftLevel() const  { return leftLevel.get(); }
