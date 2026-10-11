@@ -69,7 +69,6 @@ void DelayAudioProcessor::changeProgramName (int, const juce::String&) {}
 
 void DelayAudioProcessor::prepareToPlay (double sr, int samplesPerBlock)
 {
-    juce::ignoreUnused (samplesPerBlock);
     sampleRate = sr;
 
     const int maxDelaySamples = static_cast<int>(sampleRate * 2.5);
@@ -100,9 +99,9 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     juce::ignoreUnused (midiMessages);
     juce::ScopedNoDenormals noDenormals;
 
+    const int numSamples = buffer.getNumSamples();
     const int totalNumInputChannels  = getTotalNumInputChannels();
     const int totalNumOutputChannels = getTotalNumOutputChannels();
-    const int numSamples = buffer.getNumSamples();
 
     for (int i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear (i, 0, numSamples);
@@ -117,8 +116,9 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     const bool  isPingPong   = apvts.getRawParameterValue ("PINGPONG")->load() > 0.5f;
     const int   modeVal      = static_cast<int>(apvts.getRawParameterValue ("MODE")->load());
 
+    // Update smoother ramp time if smooth knob changes
     float rampTime = juce::jmap (smoothVal, 0.0f, 100.0f, 0.005f, 0.200f);
-    smoothDelayTime.reset (sampleRate, rampTime);
+    smoothDelayTime.setrampDurationSeconds (rampTime);
     smoothDelayTime.setTargetValue ((targetTimeMs / 1000.0f) * static_cast<float>(sampleRate));
 
     const int delayBufLen = delayBuffer.getNumSamples();
@@ -132,11 +132,16 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     const float duckAttack  = 1.0f - std::exp (-1.0f / (0.010f * static_cast<float>(sampleRate)));
     const float duckRelease = 1.0f - std::exp (-1.0f / (0.150f * static_cast<float>(sampleRate)));
 
+    auto* leftChannel  = buffer.getWritePointer (0);
+    auto* rightChannel = totalNumOutputChannels > 1 ? buffer.getWritePointer (1) : leftChannel;
+
+    auto* delayLeftPtr  = delayBuffer.getWritePointer (0);
+    auto* delayRightPtr = delayBuffer.getWritePointer (1);
+
     for (int sample = 0; sample < numSamples; ++sample)
     {
         const float currentDelaySamples = smoothDelayTime.getNextValue();
 
-        // Safe delay buffer read pointer calculation
         float readPosition = static_cast<float>(writePosition) - currentDelaySamples;
         while (readPosition < 0.0f)
             readPosition += static_cast<float>(delayBufLen);
@@ -145,17 +150,15 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         int readIdx2 = (readIdx1 + 1) % delayBufLen;
         float frac = readPosition - static_cast<float>(static_cast<int>(readPosition));
 
-        float delayLeft = (1.0f - frac) * delayBuffer.getSample (0, readIdx1) + frac * delayBuffer.getSample (0, readIdx2);
-        float delayRight = (1.0f - frac) * delayBuffer.getSample (1, readIdx1) + frac * delayBuffer.getSample (1, readIdx2);
+        float delayLeft  = (1.0f - frac) * delayLeftPtr[readIdx1]  + frac * delayLeftPtr[readIdx2];
+        float delayRight = (1.0f - frac) * delayRightPtr[readIdx1] + frac * delayRightPtr[readIdx2];
 
-        // Delay Character Mode Soft-Clipping
         if (modeVal == 1)      { delayLeft = std::tanh (delayLeft * 1.15f) * 0.95f; delayRight = std::tanh (delayRight * 1.15f) * 0.95f; }
         else if (modeVal == 2) { delayLeft = std::tanh (delayLeft * 1.40f) * 0.85f; delayRight = std::tanh (delayRight * 1.40f) * 0.85f; }
 
-        float inLeft  = totalNumInputChannels > 0 ? buffer.getSample (0, sample) : 0.0f;
-        float inRight = totalNumInputChannels > 1 ? buffer.getSample (1, sample) : inLeft;
+        float inLeft  = leftChannel[sample];
+        float inRight = rightChannel[sample];
 
-        // Dynamic Ducking Envelope Follower
         float inLevel = std::max (std::abs (inLeft), std::abs (inRight));
         if (inLevel > duckEnvelope)
             duckEnvelope += (inLevel - duckEnvelope) * duckAttack;
@@ -164,28 +167,26 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
         float duckGain = juce::jlimit (0.0f, 1.0f, 1.0f - (duckEnvelope * duckingVal));
 
-        // Circular Buffer Write
         if (isPingPong)
         {
             float monoIn = (inLeft + inRight) * 0.5f;
-            delayBuffer.setSample (0, writePosition, monoIn + (delayRight * feedbackVal));
-            delayBuffer.setSample (1, writePosition, delayLeft * feedbackVal);
+            delayLeftPtr[writePosition]  = monoIn + (delayRight * feedbackVal);
+            delayRightPtr[writePosition] = delayLeft * feedbackVal;
         }
         else
         {
-            delayBuffer.setSample (0, writePosition, inLeft  + (delayLeft  * feedbackVal));
-            delayBuffer.setSample (1, writePosition, inRight + (delayRight * feedbackVal));
+            delayLeftPtr[writePosition]  = inLeft  + (delayLeft  * feedbackVal);
+            delayRightPtr[writePosition] = inRight + (delayRight * feedbackVal);
         }
 
-        // Wet/Dry Mixing
         float wetOutLeft  = delayLeft  * duckGain * wetVal * leftPan;
         float wetOutRight = delayRight * duckGain * wetVal * rightPan;
 
         float outLeft  = (inLeft  * dryVal) + wetOutLeft;
         float outRight = (inRight * dryVal) + wetOutRight;
 
-        if (totalNumInputChannels > 0) buffer.setSample (0, sample, outLeft);
-        if (totalNumInputChannels > 1) buffer.setSample (1, sample, outRight);
+        leftChannel[sample]  = outLeft;
+        rightChannel[sample] = outRight;
 
         maxLeftPeak  = std::max (maxLeftPeak,  std::abs (outLeft));
         maxRightPeak = std::max (maxRightPeak, std::abs (outRight));
