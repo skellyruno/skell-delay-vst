@@ -38,7 +38,6 @@ public:
 
     float getLeftLevel() const;
     float getRightLevel() const;
-    double getHostBpm() const { return currentBpm; }
 
     juce::AudioProcessorValueTreeState apvts;
 
@@ -48,7 +47,6 @@ private:
     juce::AudioBuffer<float> delayBuffer;
     int writePosition = 0;
     double sampleRate = 44100.0;
-    double currentBpm = 120.0;
 
     juce::LinearSmoothedValue<float> smoothDelayTime;
     float duckEnvelope = 0.0f;
