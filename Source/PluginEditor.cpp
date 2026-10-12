@@ -144,8 +144,7 @@ void DelayAudioProcessorEditor::timerCallback()
     float fb = static_cast<float>(feedbackSlider.getValue());
     float duck = static_cast<float>(duckingSlider.getValue());
 
-    delayDisplay.setText (getTimeFractionString (ms));
-    delayDisplay.setParams (ms, fb, duck);
+    delayDisplay.setParams (ms, fb, duck, pingPongButton.getToggleState());
 }
 
 void DelayAudioProcessorEditor::paint (juce::Graphics& g)
