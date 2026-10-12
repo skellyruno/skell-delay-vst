@@ -78,6 +78,9 @@ void DelayAudioProcessor::prepareToPlay (double sr, int samplesPerBlock)
 
     writePosition = 0;
     duckEnvelope = 0.0f;
+    lpState[0] = lpState[1] = hpState[0] = hpState[1] = 0.0f;
+    lfoPhaseSlow = lfoPhaseFast = 0.0;
+    modAmount = 0.0f;
 
     // Initialise smoother from the current parameter values (not hardcoded defaults)
     lastSmoothParam = apvts.getRawParameterValue ("SMOOTH")->load();
@@ -139,12 +142,29 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     const int delayBufLen = delayBuffer.getNumSamples();
     float peakL = 0.0f, peakR = 0.0f;
 
-    const float quarterPi = juce::MathConstants<float>::pi * 0.25f;
-    float leftPan  = std::cos ((panVal + 1.0f) * quarterPi);
-    float rightPan = std::sin ((panVal + 1.0f) * quarterPi);
+    // Balance-style pan: centre = unity on both sides (no -3 dB dip on the wet signal)
+    const float leftPan  = panVal > 0.0f ? 1.0f - panVal : 1.0f;
+    const float rightPan = panVal < 0.0f ? 1.0f + panVal : 1.0f;
 
     const float duckAttack  = 1.0f - std::exp (-1.0f / (0.010f * static_cast<float>(sampleRate)));
     const float duckRelease = 1.0f - std::exp (-1.0f / (0.150f * static_cast<float>(sampleRate)));
+
+    // Per-mode character of the feedback loop: each repeat gets darker / thinner / more saturated
+    //   Digital: clean, near-transparent.  Analog: BBD-ish dark repeats + soft drive.
+    //   Tape: darker still, heavier drive, plus wow & flutter on the delay time.
+    float lpHz = 16000.0f, hpHz = 20.0f, drive = 0.0f, modTarget = 0.0f;
+    if (modeVal == 1)      { lpHz = 5500.0f; hpHz = 120.0f; drive = 1.2f; }
+    else if (modeVal == 2) { lpHz = 3600.0f; hpHz = 170.0f; drive = 1.5f; modTarget = 1.0f; }
+
+    const float sr = static_cast<float>(sampleRate);
+    lpHz = juce::jmin (lpHz, sr * 0.45f);
+    const float lpCoef = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * lpHz / sr);
+    const float hpCoef = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * hpHz / sr);
+
+    const double slowInc = juce::MathConstants<double>::twoPi * 0.55 / sampleRate;   // wow
+    const double fastInc = juce::MathConstants<double>::twoPi * 6.3  / sampleRate;   // flutter
+    const float wowDepth     = 0.0007f * sr;   // +-0.7 ms
+    const float flutterDepth = 0.00012f * sr;  // +-0.12 ms
 
     auto* leftIn  = buffer.getReadPointer (0);
     auto* rightIn = (numChannels > 1 && getTotalNumInputChannels() > 1) ? buffer.getReadPointer (1) : leftIn;
@@ -155,38 +175,66 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     auto* delayLeftPtr  = delayBuffer.getWritePointer (0);
     auto* delayRightPtr = delayBuffer.getWritePointer (1);
 
+    // 4-point cubic Hermite read: much less high-frequency loss than linear interpolation
+    auto readCubic = [delayBufLen] (const float* buf, int i1, float f)
+    {
+        const float y0 = buf[(i1 - 1 + delayBufLen) % delayBufLen];
+        const float y1 = buf[i1];
+        const float y2 = buf[(i1 + 1) % delayBufLen];
+        const float y3 = buf[(i1 + 2) % delayBufLen];
+        const float c1 = 0.5f * (y2 - y0);
+        const float c2 = y0 - 2.5f * y1 + 2.0f * y2 - 0.5f * y3;
+        const float c3 = 0.5f * (y3 - y0) + 1.5f * (y1 - y2);
+        return ((c3 * f + c2) * f + c1) * f + y1;
+    };
+
+    // High-pass then low-pass then soft saturation (unity small-signal gain)
+    auto shapeLoop = [&] (float x, int ch)
+    {
+        lpState[ch] += lpCoef * (x - lpState[ch]);
+        float y = lpState[ch];
+        hpState[ch] += hpCoef * (y - hpState[ch]);
+        y -= hpState[ch];
+        if (drive > 0.0f)
+            y = std::tanh (y * drive) / drive;
+        return y;
+    };
+
     for (int sample = 0; sample < numSamples; ++sample)
     {
-        const float currentDelaySamples = smoothDelayTime.getNextValue();
+        modAmount += 0.0005f * (modTarget - modAmount);   // fade tape wobble in/out when switching modes
+        const float mod = modAmount * (wowDepth * static_cast<float>(std::sin (lfoPhaseSlow))
+                                     + flutterDepth * static_cast<float>(std::sin (lfoPhaseFast)));
+        lfoPhaseSlow += slowInc;  if (lfoPhaseSlow >= juce::MathConstants<double>::twoPi) lfoPhaseSlow -= juce::MathConstants<double>::twoPi;
+        lfoPhaseFast += fastInc;  if (lfoPhaseFast >= juce::MathConstants<double>::twoPi) lfoPhaseFast -= juce::MathConstants<double>::twoPi;
+
+        const float currentDelaySamples = smoothDelayTime.getNextValue() + mod;
 
         float readPosition = static_cast<float>(writePosition) - currentDelaySamples;
         while (readPosition < 0.0f)
             readPosition += static_cast<float>(delayBufLen);
 
-        int readIdx1 = static_cast<int>(readPosition) % delayBufLen;
-        int readIdx2 = (readIdx1 + 1) % delayBufLen;
-        float frac = readPosition - static_cast<float>(static_cast<int>(readPosition));
+        const int   readIdx = static_cast<int>(readPosition) % delayBufLen;
+        const float frac    = readPosition - std::floor (readPosition);
 
-        float delayLeft  = (1.0f - frac) * delayLeftPtr[readIdx1]  + frac * delayLeftPtr[readIdx2];
-        float delayRight = (1.0f - frac) * delayRightPtr[readIdx1] + frac * delayRightPtr[readIdx2];
+        // Tapped, filtered, saturated: used both for the output and for the feedback path
+        const float delayLeft  = shapeLoop (readCubic (delayLeftPtr,  readIdx, frac), 0);
+        const float delayRight = shapeLoop (readCubic (delayRightPtr, readIdx, frac), 1);
 
-        if (modeVal == 1)      { delayLeft = std::tanh (delayLeft * 1.15f) * 0.95f; delayRight = std::tanh (delayRight * 1.15f) * 0.95f; }
-        else if (modeVal == 2) { delayLeft = std::tanh (delayLeft * 1.40f) * 0.85f; delayRight = std::tanh (delayRight * 1.40f) * 0.85f; }
+        const float inLeft  = leftIn[sample];
+        const float inRight = rightIn[sample];
 
-        float inLeft  = leftIn[sample];
-        float inRight = rightIn[sample];
-
-        float inLevel = std::max (std::abs (inLeft), std::abs (inRight));
+        const float inLevel = std::max (std::abs (inLeft), std::abs (inRight));
         if (inLevel > duckEnvelope)
             duckEnvelope += (inLevel - duckEnvelope) * duckAttack;
         else
             duckEnvelope += (inLevel - duckEnvelope) * duckRelease;
 
-        float duckGain = juce::jlimit (0.0f, 1.0f, 1.0f - (duckEnvelope * duckingVal));
+        const float duckGain = juce::jlimit (0.0f, 1.0f, 1.0f - (duckEnvelope * duckingVal));
 
         if (isPingPong)
         {
-            float monoIn = (inLeft + inRight) * 0.5f;
+            const float monoIn = (inLeft + inRight) * 0.5f;
             delayLeftPtr[writePosition]  = monoIn + (delayRight * feedbackVal);
             delayRightPtr[writePosition] = delayLeft * feedbackVal;
         }
@@ -196,11 +244,8 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
             delayRightPtr[writePosition] = inRight + (delayRight * feedbackVal);
         }
 
-        float wetOutLeft  = delayLeft  * duckGain * wetVal * leftPan;
-        float wetOutRight = delayRight * duckGain * wetVal * rightPan;
-
-        float outLeft  = (inLeft  * dryVal) + wetOutLeft;
-        float outRight = (inRight * dryVal) + wetOutRight;
+        const float outLeft  = (inLeft  * dryVal) + delayLeft  * duckGain * wetVal * leftPan;
+        const float outRight = (inRight * dryVal) + delayRight * duckGain * wetVal * rightPan;
 
         leftOut[sample]  = outLeft;
         rightOut[sample] = outRight;
