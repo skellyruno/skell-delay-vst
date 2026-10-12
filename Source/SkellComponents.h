@@ -38,21 +38,24 @@ private:
     float level = 0.0f;
 };
 
-// --- Echo visualiser: the repeat train, decaying with feedback ---
-// Normal: mirrored bars about a centre line.  Ping-pong: repeats alternate
-// up (left) / down (right).  Ducking trims everything after the first tap.
-class SkellDisplay : public juce::Component
+// --- Compact echo visualiser ---------------------------------------------------
+// Bars = the repeat train, decaying with FEEDBACK (ducking trims repeats after the first).
+// A glowing envelope line joins the bar tops, and a pulse sweeps across the taps at the
+// real delay time so you can see the tempo of the echoes.
+//   Normal / Inverted : mirrored bars about the centre line
+//   Ping Pong         : repeats alternate up (L) / down (R)
+class SkellDisplay : public juce::Component, private juce::Timer
 {
 public:
-    void setParams (float timeMs, float feedback, float ducking, bool pingPong)
+    SkellDisplay() { startTimerHz (30); }
+    ~SkellDisplay() override { stopTimer(); }
+
+    void setParams (float timeMs, float feedback, float ducking, int newFbMode)
     {
-        juce::ignoreUnused (timeMs);
-        if (feedback == feedbackVal && ducking == duckingVal && pingPong == isPingPong)
-            return;
+        timeValueMs = juce::jmax (10.0f, timeMs);
         feedbackVal = feedback;
         duckingVal = ducking;
-        isPingPong = pingPong;
-        repaint();
+        fbMode = newFbMode;
     }
 
     void paint (juce::Graphics& g) override
@@ -60,46 +63,83 @@ public:
         const auto lime = juce::Colour (0xff39ff14);
         auto bounds = getLocalBounds().toFloat().reduced (0.5f);
 
-        g.setColour (juce::Colour (0xff050b04));
+        g.setColour (juce::Colour (0xff040a03));
         g.fillRoundedRectangle (bounds, 5.0f);
-        g.setColour (lime.withAlpha (0.22f));
-        g.drawRoundedRectangle (bounds, 5.0f, 1.0f);
 
-        auto area = bounds.reduced (9.0f, 6.0f);
+        auto area = bounds.reduced (7.0f, 5.0f);
         const float midY = area.getCentreY();
         const float halfH = area.getHeight() * 0.5f;
 
-        g.setColour (lime.withAlpha (0.18f));
+        // faint grid: centre line + vertical tick marks
+        g.setColour (lime.withAlpha (0.12f));
         g.drawHorizontalLine (juce::roundToInt (midY), area.getX(), area.getRight());
 
         const int numTaps = 12;
-        const float barW = 4.0f;
+        const float barW = 3.0f;
         const float step = (area.getWidth() - barW) / (numTaps - 1);
-        const float fb = juce::jlimit (0.05f, 0.95f, feedbackVal);
+        const float fb = juce::jlimit (0.05f, 1.0f, feedbackVal);
         const float duckFactor = 1.0f - duckingVal * 0.4f;
+
+        // sweeping pulse, one tap per delay time
+        const double nowMs = juce::Time::getMillisecondCounterHiRes();
+        const double phase = std::fmod (nowMs / timeValueMs, static_cast<double>(numTaps));
+        const int activeTap = static_cast<int>(phase);
+        const float pulse = 1.0f - static_cast<float>(phase - activeTap);   // 1 -> 0 after each hit
+
+        juce::Path envelopeTop, envelopeBottom;
 
         for (int i = 0; i < numTaps; ++i)
         {
             const float level = std::pow (fb, static_cast<float>(i)) * (i > 0 ? duckFactor : 1.0f);
-            const float h = juce::jmax (1.0f, halfH * level);
+            const float h = juce::jmax (1.5f, halfH * level);
             const float x = area.getX() + i * step;
+            const float cx = x + barW * 0.5f;
 
-            g.setColour (lime.withAlpha (0.25f + 0.65f * level));
-
-            if (isPingPong)
+            float top, bottom;
+            if (fbMode == 2)
             {
-                if (i % 2 == 0) g.fillRoundedRectangle (x, midY - h, barW, h, 1.0f);   // left
-                else            g.fillRoundedRectangle (x, midY,     barW, h, 1.0f);   // right
+                const bool up = (i % 2 == 0);
+                top    = up ? midY - h : midY;
+                bottom = up ? midY     : midY + h;
             }
             else
             {
-                g.fillRoundedRectangle (x, midY - h, barW, h * 2.0f, 1.5f);
+                top = midY - h;  bottom = midY + h;
             }
+
+            const float boost = (i == activeTap) ? pulse : 0.0f;
+            g.setColour (lime.withAlpha (juce::jlimit (0.0f, 1.0f, 0.22f + 0.55f * level + 0.35f * boost)));
+            g.fillRoundedRectangle (x, top, barW, bottom - top, 1.0f);
+
+            if (boost > 0.05f)   // hot cap + glow on the active tap
+            {
+                g.setColour (juce::Colours::white.withAlpha (0.8f * boost));
+                g.fillRect (x, (fbMode == 2 && i % 2 == 1) ? bottom - 1.5f : top, barW, 1.5f);
+                g.setColour (lime.withAlpha (0.18f * boost));
+                g.fillRoundedRectangle (x - 2.0f, top - 2.0f, barW + 4.0f, bottom - top + 4.0f, 2.0f);
+            }
+
+            const float envTop = (fbMode == 2) ? (i % 2 == 0 ? top : bottom) : top;
+            if (i == 0) { envelopeTop.startNewSubPath (cx, envTop); envelopeBottom.startNewSubPath (cx, bottom); }
+            else        { envelopeTop.lineTo (cx, envTop);          envelopeBottom.lineTo (cx, bottom); }
         }
+
+        // glowing decay curve over the bar tops (mirrored mode shows both sides)
+        g.setColour (lime.withAlpha (0.35f));
+        g.strokePath (envelopeTop, juce::PathStrokeType (1.0f));
+        if (fbMode != 2)
+            g.strokePath (envelopeBottom, juce::PathStrokeType (1.0f));
+
+        // single hairline frame
+        g.setColour (lime.withAlpha (0.25f));
+        g.drawRoundedRectangle (bounds, 5.0f, 1.0f);
     }
 
 private:
+    void timerCallback() override { repaint(); }
+
+    float timeValueMs = 250.0f;
     float feedbackVal = 0.5f;
     float duckingVal = 0.0f;
-    bool isPingPong = false;
+    int fbMode = 0;
 };
