@@ -18,6 +18,8 @@ private:
     void timerCallback() override;
     void setMode (int index);
     void updateModeButtons (int selectedIndex);
+    void setFbMode (int index);
+    void updateFbButtons (int selectedIndex);
 
     DelayAudioProcessor& audioProcessor;
     SkellLookAndFeel skellLookAndFeel;
@@ -29,19 +31,17 @@ private:
     juce::Slider panSlider, smoothSlider;
     juce::Slider timeSlider, feedbackSlider;
     juce::Slider drySlider, wetSlider, duckingSlider;
-    juce::ToggleButton pingPongButton { "" };
 
     juce::TextButton digitalBtn { "DIGITAL" }, analogBtn { "ANALOG" }, tapeBtn { "TAPE" };
+    juce::TextButton fbNormalBtn { "NORM" }, fbInvertBtn { "INVERT" }, fbPingBtn { "PING" };
 
     juce::Label panLabel, smoothLabel, timeLabel, feedbackLabel;
-    juce::Label dryLabel, wetLabel, duckingLabel, pingPongLabel;
+    juce::Label dryLabel, wetLabel, duckingLabel;
 
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
-    using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
 
     std::unique_ptr<SliderAttachment> panAttach, smoothAttach, timeAttach, feedbackAttach;
     std::unique_ptr<SliderAttachment> dryAttach, wetAttach, duckingAttach;
-    std::unique_ptr<ButtonAttachment> pingPongAttach;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DelayAudioProcessorEditor)
 };
