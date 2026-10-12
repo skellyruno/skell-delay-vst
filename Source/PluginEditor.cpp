@@ -137,10 +137,12 @@ void DelayAudioProcessorEditor::timerCallback()
 
 void DelayAudioProcessorEditor::paint (juce::Graphics& g)
 {
+    // The artwork PNG is ~75% transparent, so always paint an opaque base first;
+    // otherwise the host's window colour shows through the middle.
+    g.fillAll (juce::Colour (0xff050a04));
+
     if (bgImage.isValid())
         g.drawImage (bgImage, getLocalBounds().toFloat());
-    else
-        g.fillAll (juce::Colour (0xff050a04));
 }
 
 void DelayAudioProcessorEditor::resized()
