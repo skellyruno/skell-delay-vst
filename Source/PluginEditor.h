@@ -19,6 +19,8 @@ private:
     void setMode (int index);
     void updateModeButtons (int selectedIndex);
     void setFbMode (int index);
+    void setSync (bool shouldSync);
+    void applyTimeMode (bool sync);   // re-points the TIME knob at ms (free) or note value (sync)
     void updateFbButtons (int selectedIndex);
 
     DelayAudioProcessor& audioProcessor;
@@ -33,6 +35,8 @@ private:
     juce::Slider drySlider, wetSlider, duckingSlider;
 
     juce::TextButton digitalBtn { "DIGITAL" }, analogBtn { "ANALOG" }, tapeBtn { "TAPE" };
+    juce::TextButton syncBtn { "FREE" };
+    bool timeIsSync = false;
     juce::TextButton fbNormalBtn { "NORM" }, fbInvertBtn { "INVERT" }, fbPingBtn { "PING" };
 
     juce::Label panLabel, smoothLabel, timeLabel, feedbackLabel;

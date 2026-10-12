@@ -34,6 +34,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout DelayAudioProcessor::createP
     params.push_back (std::make_unique<juce::AudioParameterFloat>(
         "DELAY_TIME", "Delay Time", timeRange, 250.0f));
 
+    // Free (ms) / tempo-synced time
+    params.push_back (std::make_unique<juce::AudioParameterBool>("SYNC", "Tempo Sync", false));
+
+    juce::StringArray divNames;
+    for (const auto& d : kSyncDivisions)
+        divNames.add (d.name);
+    params.push_back (std::make_unique<juce::AudioParameterChoice>(
+        "SYNC_DIV", "Sync Note", divNames, kDefaultSyncDivision));
+
     params.push_back (std::make_unique<juce::AudioParameterFloat>(
         "FEEDBACK", "Feedback", juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
 
@@ -60,7 +69,7 @@ const juce::String DelayAudioProcessor::getName() const { return JucePlugin_Name
 bool DelayAudioProcessor::acceptsMidi() const { return false; }
 bool DelayAudioProcessor::producesMidi() const { return false; }
 bool DelayAudioProcessor::isMidiEffect() const { return false; }
-double DelayAudioProcessor::getTailLengthSeconds() const { return 2.0; }
+double DelayAudioProcessor::getTailLengthSeconds() const { return 6.0; }
 
 int DelayAudioProcessor::getNumPrograms() { return 1; }
 int DelayAudioProcessor::getCurrentProgram() { return 0; }
@@ -68,26 +77,44 @@ void DelayAudioProcessor::setCurrentProgram (int) {}
 const juce::String DelayAudioProcessor::getProgramName (int) { return {}; }
 void DelayAudioProcessor::changeProgramName (int, const juce::String&) {}
 
+float DelayAudioProcessor::computeDelayMs() const
+{
+    float ms;
+    if (apvts.getRawParameterValue ("SYNC")->load() > 0.5f)
+    {
+        const int idx = juce::jlimit (0, kNumSyncDivisions - 1,
+                                      static_cast<int>(apvts.getRawParameterValue ("SYNC_DIV")->load() + 0.5f));
+        ms = kSyncDivisions[idx].beats * 60000.0f / static_cast<float>(juce::jmax (20.0, hostBpm));
+    }
+    else
+    {
+        ms = apvts.getRawParameterValue ("DELAY_TIME")->load();
+    }
+
+    // never read past the end of the delay line
+    const float maxMs = 1000.0f * static_cast<float>(delayBuffer.getNumSamples() - 8) / static_cast<float>(sampleRate);
+    return juce::jlimit (1.0f, juce::jmax (1.0f, maxMs), ms);
+}
+
 void DelayAudioProcessor::prepareToPlay (double sr, int samplesPerBlock)
 {
     juce::ignoreUnused (samplesPerBlock);
     sampleRate = sr;
 
-    const int maxDelaySamples = static_cast<int>(sampleRate * 2.5);
+    const int maxDelaySamples = static_cast<int>(sampleRate * 6.0);
     delayBuffer.setSize (2, maxDelaySamples);
     delayBuffer.clear();
 
     writePosition = 0;
     duckEnvelope = 0.0f;
-    lpState[0] = lpState[1] = hpState[0] = hpState[1] = 0.0f;
+    lpState[0] = lpState[1] = hpState[0] = hpState[1] = lp2State[0] = lp2State[1] = 0.0f;
     lfoPhaseSlow = lfoPhaseFast = 0.0;
-    modAmount = 0.0f;
+    wowDepth = flutterDepth = 0.0f;
 
     // Initialise smoother from the current parameter values (not hardcoded defaults)
     lastSmoothParam = apvts.getRawParameterValue ("SMOOTH")->load();
     smoothDelayTime.reset (sampleRate, juce::jmax (0.001, lastSmoothParam * 0.001));
-    smoothDelayTime.setCurrentAndTargetValue (
-        (apvts.getRawParameterValue ("DELAY_TIME")->load() / 1000.0f) * static_cast<float>(sampleRate));
+    smoothDelayTime.setCurrentAndTargetValue ((computeDelayMs() / 1000.0f) * static_cast<float>(sampleRate));
 }
 
 void DelayAudioProcessor::releaseResources() {}
@@ -119,7 +146,6 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         return;
 
     const float panVal       = apvts.getRawParameterValue ("PAN")->load();
-    const float targetTimeMs = apvts.getRawParameterValue ("DELAY_TIME")->load();
     const float feedbackVal  = apvts.getRawParameterValue ("FEEDBACK")->load();
     const float duckingVal   = apvts.getRawParameterValue ("DUCKING")->load();
     const float dryVal       = apvts.getRawParameterValue ("DRY")->load();
@@ -138,7 +164,15 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         smoothDelayTime.setCurrentAndTargetValue (current);
     }
 
-    smoothDelayTime.setTargetValue ((targetTimeMs / 1000.0f) * static_cast<float>(sampleRate));
+    // Host tempo for sync mode (falls back to the last known / 120 bpm)
+    if (auto* ph = getPlayHead())
+        if (auto pos = ph->getPosition())
+            if (auto bpm = pos->getBpm())
+                hostBpm = *bpm;
+
+    const float delayMs = computeDelayMs();
+    effectiveDelayMs.store (delayMs);
+    smoothDelayTime.setTargetValue ((delayMs / 1000.0f) * static_cast<float>(sampleRate));
 
     const int delayBufLen = delayBuffer.getNumSamples();
     float peakL = 0.0f, peakR = 0.0f;
@@ -149,26 +183,31 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     const float inGainR = panVal < 0.0f ? 1.0f + panVal : 1.0f;
     const bool  pingStartsLeft = panVal <= 0.0f;
 
-    const float duckAttack  = 1.0f - std::exp (-1.0f / (0.010f * static_cast<float>(sampleRate)));
-    const float duckRelease = 1.0f - std::exp (-1.0f / (0.150f * static_cast<float>(sampleRate)));
+    const float duckAttack  = 1.0f - std::exp (-1.0f / (0.004f * static_cast<float>(sampleRate)));
+    const float duckRelease = 1.0f - std::exp (-1.0f / (0.250f * static_cast<float>(sampleRate)));
 
-    // Feedback-loop "CUT": each repeat is low-passed so echoes soften as they fade.
-    //   Digital: clean (Fruity Delay 2 style), only a gentle top-end roll-off.
-    //   Analog : darker repeats with a touch of drive.
-    //   Tape   : darker again, more drive and a little wow/flutter.
-    float lpHz = 12000.0f, hpHz = 20.0f, drive = 0.0f, modTarget = 0.0f;
-    if (modeVal == 1)      { lpHz = 6500.0f; hpHz = 70.0f;  drive = 1.1f; }
-    else if (modeVal == 2) { lpHz = 5000.0f; hpHz = 90.0f;  drive = 1.25f; modTarget = 1.0f; }
+    // Character of the repeats (every pass through the loop gets this treatment):
+    //   Digital: clean, only a gentle top-end roll-off.
+    //   Analog : bucket-brigade echo - dark 2-pole low-pass, soft drive, slow clock-drift
+    //            chorus on the repeats.
+    //   Tape   : tape echo - softer roll-off, heavier saturation, wow & flutter.
+    float lpHz = 12000.0f, hpHz = 20.0f, drive = 0.0f;
+    float wowTargetMs = 0.0f, flutterTargetMs = 0.0f, wowHz = 0.55f;
+    bool twoPole = false;
+    if (modeVal == 1)      { lpHz = 3800.0f; hpHz = 80.0f;  drive = 1.3f;  twoPole = true;
+                             wowTargetMs = 0.35f; flutterTargetMs = 0.0f;  wowHz = 0.9f; }
+    else if (modeVal == 2) { lpHz = 5200.0f; hpHz = 110.0f; drive = 1.6f;
+                             wowTargetMs = 0.55f; flutterTargetMs = 0.08f; wowHz = 0.55f; }
 
     const float sr = static_cast<float>(sampleRate);
     lpHz = juce::jmin (lpHz, sr * 0.45f);
     const float lpCoef = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * lpHz / sr);
     const float hpCoef = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * hpHz / sr);
 
-    const double slowInc = juce::MathConstants<double>::twoPi * 0.55 / sampleRate;   // wow
+    const double slowInc = juce::MathConstants<double>::twoPi * wowHz / sampleRate;   // wow / clock drift
     const double fastInc = juce::MathConstants<double>::twoPi * 6.3  / sampleRate;   // flutter
-    const float wowDepth     = 0.00025f * sr;  // +-0.25 ms
-    const float flutterDepth = 0.00004f * sr;  // +-0.04 ms
+    const float wowDepthTarget     = 0.001f * wowTargetMs * sr;
+    const float flutterDepthTarget = 0.001f * flutterTargetMs * sr;
 
     auto* leftIn  = buffer.getReadPointer (0);
     auto* rightIn = (numChannels > 1 && getTotalNumInputChannels() > 1) ? buffer.getReadPointer (1) : leftIn;
@@ -197,6 +236,11 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     {
         lpState[ch] += lpCoef * (x - lpState[ch]);
         float y = lpState[ch];
+        if (twoPole)
+        {
+            lp2State[ch] += lpCoef * (y - lp2State[ch]);
+            y = lp2State[ch];
+        }
         hpState[ch] += hpCoef * (y - hpState[ch]);
         y -= hpState[ch];
         if (drive > 0.0f)
@@ -208,9 +252,11 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
     for (int sample = 0; sample < numSamples; ++sample)
     {
-        modAmount += 0.0005f * (modTarget - modAmount);   // fade tape wobble in/out when switching modes
-        const float mod = modAmount * (wowDepth * static_cast<float>(std::sin (lfoPhaseSlow))
-                                     + flutterDepth * static_cast<float>(std::sin (lfoPhaseFast)));
+        // glide the modulation depths so switching modes never clicks
+        wowDepth     += 0.0005f * (wowDepthTarget     - wowDepth);
+        flutterDepth += 0.0005f * (flutterDepthTarget - flutterDepth);
+        const float mod = wowDepth * static_cast<float>(std::sin (lfoPhaseSlow))
+                        + flutterDepth * static_cast<float>(std::sin (lfoPhaseFast));
         lfoPhaseSlow += slowInc;  if (lfoPhaseSlow >= juce::MathConstants<double>::twoPi) lfoPhaseSlow -= juce::MathConstants<double>::twoPi;
         lfoPhaseFast += fastInc;  if (lfoPhaseFast >= juce::MathConstants<double>::twoPi) lfoPhaseFast -= juce::MathConstants<double>::twoPi;
 
@@ -236,7 +282,11 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         else
             duckEnvelope += (inLevel - duckEnvelope) * duckRelease;
 
-        const float duckGain = juce::jlimit (0.0f, 1.0f, 1.0f - (duckEnvelope * duckingVal));
+        // Ducker: while the input is present (above ~-45 dB, fully engaged by ~-18 dB) the wet
+        // signal is pulled down by DUCKING; at 100% the echoes vanish under the dry signal and
+        // swell back (~250 ms) once it stops. Feedback keeps running, so trails return in the gaps.
+        const float duckAmount = juce::jlimit (0.0f, 1.0f, (duckEnvelope - 0.0056f) / (0.126f - 0.0056f));
+        const float duckGain = 1.0f - duckingVal * duckAmount;
 
         // Feed the lines. Ping Pong sums to mono and starts on one side (set by PAN) so the
         // bounce is always audible; the other modes use the real stereo input through PAN.

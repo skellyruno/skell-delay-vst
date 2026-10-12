@@ -1,31 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
-static juce::String getTimeFractionString (float timeMs)
-{
-    struct Division { float ms; const char* name; };
-    const Division divisions[] = {
-        { 31.25f,  "1/64" },  { 41.67f,  "1/32T" }, { 62.50f,  "1/32" },
-        { 83.33f,  "1/16T" }, { 125.0f,  "1/16" },  { 166.67f, "1/8T" },
-        { 250.0f,  "1/8" },   { 333.33f, "1/4T" },  { 500.0f,  "1/4" },
-        { 666.67f, "1/2T" },  { 1000.0f, "1/1" }
-    };
-
-    int closestIdx = 0;
-    float minDiff = std::abs (timeMs - divisions[0].ms);
-
-    for (int i = 1; i < 11; ++i)
-    {
-        float diff = std::abs (timeMs - divisions[i].ms);
-        if (diff < minDiff)
-        {
-            minDiff = diff;
-            closestIdx = i;
-        }
-    }
-    return divisions[closestIdx].name;
-}
-
 DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     : AudioProcessorEditor (&p), audioProcessor (p)
 {
@@ -85,6 +60,10 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     fbInvertBtn.onClick = [this]() { setFbMode (1); };
     fbPingBtn.onClick   = [this]() { setFbMode (2); };
 
+    syncBtn.setClickingTogglesState (true);
+    syncBtn.onClick = [this]() { setSync (syncBtn.getToggleState()); };
+    addAndMakeVisible (syncBtn);
+
     addAndMakeVisible (digitalBtn);
     addAndMakeVisible (analogBtn);
     addAndMakeVisible (tapeBtn);
@@ -95,7 +74,6 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
 
     panAttach      = std::make_unique<SliderAttachment>(audioProcessor.apvts, "PAN", panSlider);
     smoothAttach   = std::make_unique<SliderAttachment>(audioProcessor.apvts, "SMOOTH", smoothSlider);
-    timeAttach     = std::make_unique<SliderAttachment>(audioProcessor.apvts, "DELAY_TIME", timeSlider);
     feedbackAttach = std::make_unique<SliderAttachment>(audioProcessor.apvts, "FEEDBACK", feedbackSlider);
     dryAttach      = std::make_unique<SliderAttachment>(audioProcessor.apvts, "DRY", drySlider);
     wetAttach      = std::make_unique<SliderAttachment>(audioProcessor.apvts, "WET", wetSlider);
@@ -103,12 +81,12 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
 
     panSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt ((v + 1.0) * 50.0)); };
     smoothSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v)); };
-    timeSlider.textFromValueFunction = [](double v) { return getTimeFractionString (static_cast<float>(v)); };
     feedbackSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v * 100.0)); };
     wetSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v * 100.0)); };
     drySlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v * 100.0)); };
     duckingSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v * 100.0)); };
 
+    applyTimeMode (audioProcessor.apvts.getRawParameterValue ("SYNC")->load() > 0.5f);
     updateModeButtons (static_cast<int>(audioProcessor.apvts.getRawParameterValue ("MODE")->load()));
     updateFbButtons   (static_cast<int>(audioProcessor.apvts.getRawParameterValue ("FB_MODE")->load()));
 
@@ -159,6 +137,39 @@ void DelayAudioProcessorEditor::updateFbButtons (int selectedIndex)
     fbPingBtn.setToggleState   (selectedIndex == 2, juce::dontSendNotification);
 }
 
+void DelayAudioProcessorEditor::applyTimeMode (bool sync)
+{
+    // Re-create the attachment so the knob takes the other parameter's range and value
+    timeAttach.reset();
+    timeAttach = std::make_unique<SliderAttachment>(audioProcessor.apvts,
+                                                    sync ? "SYNC_DIV" : "DELAY_TIME", timeSlider);
+    timeIsSync = sync;
+
+    if (sync)
+        timeSlider.textFromValueFunction = [](double v)
+        {
+            return juce::String (kSyncDivisions[juce::jlimit (0, kNumSyncDivisions - 1, juce::roundToInt (v))].name);
+        };
+    else
+        timeSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v)) + " ms"; };
+
+    syncBtn.setToggleState (sync, juce::dontSendNotification);
+    syncBtn.setButtonText (sync ? "SYNC" : "FREE");
+    timeSlider.updateText();
+    timeSlider.repaint();
+}
+
+void DelayAudioProcessorEditor::setSync (bool shouldSync)
+{
+    if (auto* param = audioProcessor.apvts.getParameter ("SYNC"))
+    {
+        param->beginChangeGesture();
+        param->setValueNotifyingHost (shouldSync ? 1.0f : 0.0f);
+        param->endChangeGesture();
+    }
+    applyTimeMode (shouldSync);
+}
+
 void DelayAudioProcessorEditor::timerCallback()
 {
     updateModeButtons (static_cast<int>(audioProcessor.apvts.getRawParameterValue ("MODE")->load()));
@@ -166,7 +177,12 @@ void DelayAudioProcessorEditor::timerCallback()
     leftMeter.setLevel (audioProcessor.getLeftLevel());
     rightMeter.setLevel (audioProcessor.getRightLevel());
 
-    float ms = static_cast<float>(timeSlider.getValue());
+    // follow host automation of the SYNC switch
+    const bool syncParam = audioProcessor.apvts.getRawParameterValue ("SYNC")->load() > 0.5f;
+    if (syncParam != timeIsSync)
+        applyTimeMode (syncParam);
+
+    const float ms = audioProcessor.getEffectiveDelayMs();   // real time in use, free or synced
     float fb = static_cast<float>(feedbackSlider.getValue());
     float duck = static_cast<float>(duckingSlider.getValue());
 
@@ -211,6 +227,8 @@ void DelayAudioProcessorEditor::resized()
     fbNormalBtn.setBounds (262, 116, 38, 15);
     fbInvertBtn.setBounds (300, 116, 38, 15);
     fbPingBtn.setBounds   (338, 116, 38, 15);
+
+    syncBtn.setBounds (262, 136, 114, 15);
 
     // Right group
     feedbackSlider.setBounds (390, 72, 72, 72);
