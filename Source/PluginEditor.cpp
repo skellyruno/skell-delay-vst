@@ -62,7 +62,7 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     pingPongLabel.setText ("PING PONG", juce::dontSendNotification);
     pingPongLabel.setFont (juce::FontOptions (8.5f).withStyle ("Bold Italic"));
     pingPongLabel.setColour (juce::Label::textColourId, juce::Colour (0xff39ff14));
-    pingPongLabel.setJustificationType (juce::Justification::centred);
+    pingPongLabel.setJustificationType (juce::Justification::centredLeft);
     addAndMakeVisible (pingPongLabel);
 
     digitalBtn.setRadioGroupId (1001);
@@ -72,6 +72,10 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     digitalBtn.setClickingTogglesState (true);
     analogBtn.setClickingTogglesState (true);
     tapeBtn.setClickingTogglesState (true);
+
+    digitalBtn.setConnectedEdges (juce::Button::ConnectedOnRight);
+    analogBtn.setConnectedEdges  (juce::Button::ConnectedOnLeft | juce::Button::ConnectedOnRight);
+    tapeBtn.setConnectedEdges    (juce::Button::ConnectedOnLeft);
 
     addAndMakeVisible (digitalBtn);
     addAndMakeVisible (analogBtn);
@@ -156,9 +160,9 @@ void DelayAudioProcessorEditor::paint (juce::Graphics& g)
 
 void DelayAudioProcessorEditor::resized()
 {
-    // Meters sit just inside the frame artwork, below the corner skeletons
-    leftMeter.setBounds (30, 70, 6, 90);
-    rightMeter.setBounds (602, 70, 6, 90);
+    // Meters (original placement)
+    leftMeter.setBounds (10, 42, 8, 128);
+    rightMeter.setBounds (620, 42, 8, 128);
 
     // Left group - knobs share a centre line, labels share one baseline
     panSlider.setBounds (44, 84, 48, 48);
@@ -171,14 +175,14 @@ void DelayAudioProcessorEditor::resized()
     timeLabel.setBounds (178, 148, 64, 14);
 
     // Centre: tap display, mode buttons, ping-pong
-    delayDisplay.setBounds (269, 56, 100, 26);
+    delayDisplay.setBounds (259, 50, 120, 46);
 
-    digitalBtn.setBounds (260, 92, 38, 15);
-    analogBtn.setBounds (300, 92, 38, 15);
-    tapeBtn.setBounds (340, 92, 38, 15);
+    digitalBtn.setBounds (259, 102, 40, 16);
+    analogBtn.setBounds  (299, 102, 40, 16);
+    tapeBtn.setBounds    (339, 102, 40, 16);
 
-    pingPongButton.setBounds (311, 112, 16, 16);
-    pingPongLabel.setBounds (269, 129, 100, 14);
+    pingPongButton.setBounds (283, 126, 14, 14);
+    pingPongLabel.setBounds  (303, 126, 60, 14);
 
     // Right group
     feedbackSlider.setBounds (390, 72, 72, 72);
