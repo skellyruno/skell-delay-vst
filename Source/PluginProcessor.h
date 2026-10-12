@@ -52,6 +52,12 @@ private:
     float duckEnvelope = 0.0f;
     float lastSmoothParam = 50.0f;
 
+    // Feedback-loop tone shaping (per channel) and tape modulation state
+    float lpState[2] { 0.0f, 0.0f };
+    float hpState[2] { 0.0f, 0.0f };
+    double lfoPhaseSlow = 0.0, lfoPhaseFast = 0.0;
+    float modAmount = 0.0f;
+
     std::atomic<float> leftLevel { 0.0f };
     std::atomic<float> rightLevel { 0.0f };
 
