@@ -38,18 +38,19 @@ private:
     float level = 0.0f;
 };
 
-// --- Upgraded Pro LCD Center Display ---
+// --- Minimal readout: note value, exact ms, and a tap-decay strip ---
 class SkellDisplay : public juce::Component
 {
 public:
     void setText (const juce::String& newText)
     {
-        fractionText = newText;
-        repaint();
+        if (newText != fractionText) { fractionText = newText; repaint(); }
     }
 
     void setParams (float timeMs, float feedback, float ducking)
     {
+        if (timeMs == timeValueMs && feedback == feedbackVal && ducking == duckingVal)
+            return;
         timeValueMs = timeMs;
         feedbackVal = feedback;
         duckingVal = ducking;
@@ -58,43 +59,43 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        auto bounds = getLocalBounds().toFloat();
+        const auto lime = juce::Colour (0xff39ff14);
+        auto bounds = getLocalBounds().toFloat().reduced (0.5f);
 
-        // Dark CRT Bevel Frame
-        g.setColour (juce::Colour (0xff040802));
-        g.fillRoundedRectangle (bounds, 4.0f);
-        g.setColour (juce::Colour (0xff39ff14).withAlpha (0.45f));
-        g.drawRoundedRectangle (bounds, 4.0f, 1.25f);
+        // Flat dark inset with a single hairline - no glow, no bevel
+        g.setColour (juce::Colour (0xff050b04));
+        g.fillRoundedRectangle (bounds, 5.0f);
+        g.setColour (lime.withAlpha (0.22f));
+        g.drawRoundedRectangle (bounds, 5.0f, 1.0f);
 
-        // Background Tap Echo Visualizer Bars
-        auto barArea = bounds.reduced (4.0f, 3.0f);
-        const int numTaps = 8;
-        const float barWidth = 4.0f;
-        const float spacing = (barArea.getWidth() - (numTaps * barWidth)) / (numTaps - 1);
+        auto inner = bounds.reduced (8.0f, 4.0f);
+
+        // Note value
+        g.setColour (lime);
+        g.setFont (juce::FontOptions (19.0f).withStyle ("Bold Italic"));
+        g.drawText (fractionText, inner.removeFromTop (22.0f), juce::Justification::centred, false);
+
+        // Exact time, quiet
+        g.setColour (lime.withAlpha (0.55f));
+        g.setFont (juce::FontOptions (9.5f).withStyle ("Bold"));
+        g.drawText (juce::String (timeValueMs, 1) + " ms", inner.removeFromTop (12.0f),
+                    juce::Justification::centred, false);
+
+        // Tap-decay strip: thin ticks, evenly spaced, own row (never behind text)
+        inner.removeFromTop (3.0f);
+        const int numTaps = 10;
+        const float tickW = 2.0f;
+        const float step = (inner.getWidth() - tickW) / (numTaps - 1);
+        const float fb = juce::jlimit (0.05f, 0.95f, feedbackVal);
+        const float duckFactor = 1.0f - (duckingVal * 0.4f);
 
         for (int i = 0; i < numTaps; ++i)
         {
-            float decayFactor = std::pow (juce::jlimit (0.1f, 0.95f, feedbackVal), static_cast<float>(i));
-            float duckFactor = 1.0f - (duckingVal * 0.4f);
-            float heightPercent = decayFactor * duckFactor;
-
-            float barHeight = barArea.getHeight() * 0.85f * heightPercent;
-            float xPos = barArea.getX() + i * (barWidth + spacing);
-            float yPos = barArea.getBottom() - barHeight - 1.0f;
-
-            g.setColour (juce::Colour (0xff39ff14).withAlpha (0.15f + (0.6f * decayFactor)));
-            g.fillRoundedRectangle (xPos, yPos, barWidth, barHeight, 1.0f);
+            const float level = std::pow (fb, static_cast<float>(i)) * (i > 0 ? duckFactor : 1.0f);
+            const float h = juce::jmax (1.0f, inner.getHeight() * level);
+            g.setColour (lime.withAlpha (0.2f + 0.6f * level));
+            g.fillRect (inner.getX() + i * step, inner.getBottom() - h, tickW, h);
         }
-
-        // Top Row: Musical Note Fraction (e.g. 1/8)
-        g.setColour (juce::Colour (0xff39ff14));
-        g.setFont (juce::FontOptions (15.0f).withStyle ("Bold Italic"));
-        g.drawText (fractionText, bounds.removeFromTop (17.0f), juce::Justification::centred, true);
-
-        // Bottom Row: Exact Milliseconds Readout (e.g. 250.0 ms)
-        g.setColour (juce::Colour (0xffffffff).withAlpha (0.8f));
-        g.setFont (juce::FontOptions (9.5f).withStyle ("Bold"));
-        g.drawText (juce::String (timeValueMs, 1) + " ms", bounds, juce::Justification::centred, true);
     }
 
 private:
