@@ -58,17 +58,15 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     setupKnob (wetSlider, wetLabel, "WET");
     setupKnob (duckingSlider, duckingLabel, "DUCKING");
 
-    addAndMakeVisible (pingPongButton);
-    pingPongLabel.setText ("PING PONG", juce::dontSendNotification);
-    pingPongLabel.setFont (juce::FontOptions (8.5f).withStyle ("Bold Italic"));
-    pingPongLabel.setColour (juce::Label::textColourId, juce::Colour (0xff39ff14));
-    pingPongLabel.setJustificationType (juce::Justification::centredLeft);
-    addAndMakeVisible (pingPongLabel);
-
     digitalBtn.setRadioGroupId (1001);
+    fbNormalBtn.setRadioGroupId (1002);
+    fbInvertBtn.setRadioGroupId (1002);
+    fbPingBtn.setRadioGroupId (1002);
     analogBtn.setRadioGroupId (1001);
     tapeBtn.setRadioGroupId (1001);
 
+    for (auto* b : { &fbNormalBtn, &fbInvertBtn, &fbPingBtn })
+        b->setClickingTogglesState (true);
     digitalBtn.setClickingTogglesState (true);
     analogBtn.setClickingTogglesState (true);
     tapeBtn.setClickingTogglesState (true);
@@ -76,6 +74,16 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     digitalBtn.setConnectedEdges (juce::Button::ConnectedOnRight);
     analogBtn.setConnectedEdges  (juce::Button::ConnectedOnLeft | juce::Button::ConnectedOnRight);
     tapeBtn.setConnectedEdges    (juce::Button::ConnectedOnLeft);
+
+    fbNormalBtn.setConnectedEdges (juce::Button::ConnectedOnRight);
+    fbInvertBtn.setConnectedEdges (juce::Button::ConnectedOnLeft | juce::Button::ConnectedOnRight);
+    fbPingBtn.setConnectedEdges   (juce::Button::ConnectedOnLeft);
+    addAndMakeVisible (fbNormalBtn);
+    addAndMakeVisible (fbInvertBtn);
+    addAndMakeVisible (fbPingBtn);
+    fbNormalBtn.onClick = [this]() { setFbMode (0); };
+    fbInvertBtn.onClick = [this]() { setFbMode (1); };
+    fbPingBtn.onClick   = [this]() { setFbMode (2); };
 
     addAndMakeVisible (digitalBtn);
     addAndMakeVisible (analogBtn);
@@ -92,7 +100,6 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     dryAttach      = std::make_unique<SliderAttachment>(audioProcessor.apvts, "DRY", drySlider);
     wetAttach      = std::make_unique<SliderAttachment>(audioProcessor.apvts, "WET", wetSlider);
     duckingAttach  = std::make_unique<SliderAttachment>(audioProcessor.apvts, "DUCKING", duckingSlider);
-    pingPongAttach = std::make_unique<ButtonAttachment>(audioProcessor.apvts, "PINGPONG", pingPongButton);
 
     panSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt ((v + 1.0) * 50.0)); };
     smoothSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v)); };
@@ -103,6 +110,7 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     duckingSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v * 100.0)); };
 
     updateModeButtons (static_cast<int>(audioProcessor.apvts.getRawParameterValue ("MODE")->load()));
+    updateFbButtons   (static_cast<int>(audioProcessor.apvts.getRawParameterValue ("FB_MODE")->load()));
 
     startTimerHz (30);
     setSize (638, 204);
@@ -133,6 +141,24 @@ void DelayAudioProcessorEditor::updateModeButtons (int selectedIndex)
     tapeBtn.setToggleState    (selectedIndex == 2, juce::dontSendNotification);
 }
 
+void DelayAudioProcessorEditor::setFbMode (int index)
+{
+    if (auto* param = audioProcessor.apvts.getParameter ("FB_MODE"))
+    {
+        param->beginChangeGesture();
+        param->setValueNotifyingHost (param->convertTo0to1 (static_cast<float>(index)));
+        param->endChangeGesture();
+    }
+    updateFbButtons (index);
+}
+
+void DelayAudioProcessorEditor::updateFbButtons (int selectedIndex)
+{
+    fbNormalBtn.setToggleState (selectedIndex == 0, juce::dontSendNotification);
+    fbInvertBtn.setToggleState (selectedIndex == 1, juce::dontSendNotification);
+    fbPingBtn.setToggleState   (selectedIndex == 2, juce::dontSendNotification);
+}
+
 void DelayAudioProcessorEditor::timerCallback()
 {
     updateModeButtons (static_cast<int>(audioProcessor.apvts.getRawParameterValue ("MODE")->load()));
@@ -144,7 +170,9 @@ void DelayAudioProcessorEditor::timerCallback()
     float fb = static_cast<float>(feedbackSlider.getValue());
     float duck = static_cast<float>(duckingSlider.getValue());
 
-    delayDisplay.setParams (ms, fb, duck, pingPongButton.getToggleState());
+    const int fbMode = static_cast<int>(audioProcessor.apvts.getRawParameterValue ("FB_MODE")->load());
+    updateFbButtons (fbMode);
+    delayDisplay.setParams (ms, fb, duck, fbMode);
 }
 
 void DelayAudioProcessorEditor::paint (juce::Graphics& g)
@@ -174,14 +202,15 @@ void DelayAudioProcessorEditor::resized()
     timeLabel.setBounds (178, 148, 64, 14);
 
     // Centre: tap display, mode buttons, ping-pong
-    delayDisplay.setBounds (259, 50, 120, 46);
+    delayDisplay.setBounds (262, 52, 114, 38);
 
-    digitalBtn.setBounds (259, 102, 40, 16);
-    analogBtn.setBounds  (299, 102, 40, 16);
-    tapeBtn.setBounds    (339, 102, 40, 16);
+    digitalBtn.setBounds (262, 96, 38, 15);
+    analogBtn.setBounds  (300, 96, 38, 15);
+    tapeBtn.setBounds    (338, 96, 38, 15);
 
-    pingPongButton.setBounds (283, 126, 14, 14);
-    pingPongLabel.setBounds  (303, 126, 60, 14);
+    fbNormalBtn.setBounds (262, 116, 38, 15);
+    fbInvertBtn.setBounds (300, 116, 38, 15);
+    fbPingBtn.setBounds   (338, 116, 38, 15);
 
     // Right group
     feedbackSlider.setBounds (390, 72, 72, 72);
