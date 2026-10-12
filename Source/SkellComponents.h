@@ -38,22 +38,20 @@ private:
     float level = 0.0f;
 };
 
-// --- Minimal readout: note value, exact ms, and a tap-decay strip ---
+// --- Echo visualiser: the repeat train, decaying with feedback ---
+// Normal: mirrored bars about a centre line.  Ping-pong: repeats alternate
+// up (left) / down (right).  Ducking trims everything after the first tap.
 class SkellDisplay : public juce::Component
 {
 public:
-    void setText (const juce::String& newText)
+    void setParams (float timeMs, float feedback, float ducking, bool pingPong)
     {
-        if (newText != fractionText) { fractionText = newText; repaint(); }
-    }
-
-    void setParams (float timeMs, float feedback, float ducking)
-    {
-        if (timeMs == timeValueMs && feedback == feedbackVal && ducking == duckingVal)
+        juce::ignoreUnused (timeMs);
+        if (feedback == feedbackVal && ducking == duckingVal && pingPong == isPingPong)
             return;
-        timeValueMs = timeMs;
         feedbackVal = feedback;
         duckingVal = ducking;
+        isPingPong = pingPong;
         repaint();
     }
 
@@ -62,45 +60,46 @@ public:
         const auto lime = juce::Colour (0xff39ff14);
         auto bounds = getLocalBounds().toFloat().reduced (0.5f);
 
-        // Flat dark inset with a single hairline - no glow, no bevel
         g.setColour (juce::Colour (0xff050b04));
         g.fillRoundedRectangle (bounds, 5.0f);
         g.setColour (lime.withAlpha (0.22f));
         g.drawRoundedRectangle (bounds, 5.0f, 1.0f);
 
-        auto inner = bounds.reduced (8.0f, 4.0f);
+        auto area = bounds.reduced (9.0f, 6.0f);
+        const float midY = area.getCentreY();
+        const float halfH = area.getHeight() * 0.5f;
 
-        // Note value
-        g.setColour (lime);
-        g.setFont (juce::FontOptions (19.0f).withStyle ("Bold Italic"));
-        g.drawText (fractionText, inner.removeFromTop (22.0f), juce::Justification::centred, false);
+        g.setColour (lime.withAlpha (0.18f));
+        g.drawHorizontalLine (juce::roundToInt (midY), area.getX(), area.getRight());
 
-        // Exact time, quiet
-        g.setColour (lime.withAlpha (0.55f));
-        g.setFont (juce::FontOptions (9.5f).withStyle ("Bold"));
-        g.drawText (juce::String (timeValueMs, 1) + " ms", inner.removeFromTop (12.0f),
-                    juce::Justification::centred, false);
-
-        // Tap-decay strip: thin ticks, evenly spaced, own row (never behind text)
-        inner.removeFromTop (3.0f);
-        const int numTaps = 10;
-        const float tickW = 2.0f;
-        const float step = (inner.getWidth() - tickW) / (numTaps - 1);
+        const int numTaps = 12;
+        const float barW = 4.0f;
+        const float step = (area.getWidth() - barW) / (numTaps - 1);
         const float fb = juce::jlimit (0.05f, 0.95f, feedbackVal);
-        const float duckFactor = 1.0f - (duckingVal * 0.4f);
+        const float duckFactor = 1.0f - duckingVal * 0.4f;
 
         for (int i = 0; i < numTaps; ++i)
         {
             const float level = std::pow (fb, static_cast<float>(i)) * (i > 0 ? duckFactor : 1.0f);
-            const float h = juce::jmax (1.0f, inner.getHeight() * level);
-            g.setColour (lime.withAlpha (0.2f + 0.6f * level));
-            g.fillRect (inner.getX() + i * step, inner.getBottom() - h, tickW, h);
+            const float h = juce::jmax (1.0f, halfH * level);
+            const float x = area.getX() + i * step;
+
+            g.setColour (lime.withAlpha (0.25f + 0.65f * level));
+
+            if (isPingPong)
+            {
+                if (i % 2 == 0) g.fillRoundedRectangle (x, midY - h, barW, h, 1.0f);   // left
+                else            g.fillRoundedRectangle (x, midY,     barW, h, 1.0f);   // right
+            }
+            else
+            {
+                g.fillRoundedRectangle (x, midY - h, barW, h * 2.0f, 1.5f);
+            }
         }
     }
 
 private:
-    juce::String fractionText = "1/8";
-    float timeValueMs = 250.0f;
     float feedbackVal = 0.5f;
     float duckingVal = 0.0f;
+    bool isPingPong = false;
 };
