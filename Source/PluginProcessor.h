@@ -50,6 +50,7 @@ private:
 
     juce::LinearSmoothedValue<float> smoothDelayTime;
     float duckEnvelope = 0.0f;
+    float lastSmoothParam = 50.0f;
 
     juce::Atomic<float> leftLevel { 0.0f };
     juce::Atomic<float> rightLevel { 0.0f };
