@@ -35,7 +35,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout DelayAudioProcessor::createP
         "DELAY_TIME", "Delay Time", timeRange, 250.0f));
 
     params.push_back (std::make_unique<juce::AudioParameterFloat>(
-        "FEEDBACK", "Feedback", juce::NormalisableRange<float>(0.0f, 0.95f, 0.01f), 0.5f));
+        "FEEDBACK", "Feedback", juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
 
     params.push_back (std::make_unique<juce::AudioParameterFloat>(
         "DUCKING", "Ducking", juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
@@ -46,8 +46,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout DelayAudioProcessor::createP
     params.push_back (std::make_unique<juce::AudioParameterFloat>(
         "WET", "Wet Level", juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
 
-    params.push_back (std::make_unique<juce::AudioParameterBool>(
-        "PINGPONG", "Ping Pong", false));
+    // Same three feedback routings as Fruity Delay 2
+    params.push_back (std::make_unique<juce::AudioParameterChoice>(
+        "FB_MODE", "Feedback Mode", juce::StringArray { "Normal", "Inverted", "Ping Pong" }, 0));
 
     params.push_back (std::make_unique<juce::AudioParameterChoice>(
         "MODE", "Mode", juce::StringArray { "Digital", "Analog", "Tape" }, 0));
@@ -123,7 +124,7 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     const float duckingVal   = apvts.getRawParameterValue ("DUCKING")->load();
     const float dryVal       = apvts.getRawParameterValue ("DRY")->load();
     const float wetVal       = apvts.getRawParameterValue ("WET")->load();
-    const bool  isPingPong   = apvts.getRawParameterValue ("PINGPONG")->load() > 0.5f;
+    const int   fbMode       = static_cast<int>(apvts.getRawParameterValue ("FB_MODE")->load());
     const int   modeVal      = static_cast<int>(apvts.getRawParameterValue ("MODE")->load());
 
     // SMOOTH (0-100) = glide time in ms. Only re-time the ramp when the knob moves,
@@ -142,19 +143,22 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     const int delayBufLen = delayBuffer.getNumSamples();
     float peakL = 0.0f, peakR = 0.0f;
 
-    // Balance-style pan: centre = unity on both sides (no -3 dB dip on the wet signal)
-    const float leftPan  = panVal > 0.0f ? 1.0f - panVal : 1.0f;
-    const float rightPan = panVal < 0.0f ? 1.0f + panVal : 1.0f;
+    // PAN is an INPUT pan (as in Fruity Delay 2): it positions the signal feeding the delay,
+    // the dry signal is untouched. Balance law: centre = unity on both sides.
+    const float inGainL = panVal > 0.0f ? 1.0f - panVal : 1.0f;
+    const float inGainR = panVal < 0.0f ? 1.0f + panVal : 1.0f;
+    const bool  pingStartsLeft = panVal <= 0.0f;
 
     const float duckAttack  = 1.0f - std::exp (-1.0f / (0.010f * static_cast<float>(sampleRate)));
     const float duckRelease = 1.0f - std::exp (-1.0f / (0.150f * static_cast<float>(sampleRate)));
 
-    // Per-mode character of the feedback loop: each repeat gets darker / thinner / more saturated
-    //   Digital: clean, near-transparent.  Analog: BBD-ish dark repeats + soft drive.
-    //   Tape: darker still, heavier drive, plus wow & flutter on the delay time.
-    float lpHz = 16000.0f, hpHz = 20.0f, drive = 0.0f, modTarget = 0.0f;
-    if (modeVal == 1)      { lpHz = 5500.0f; hpHz = 120.0f; drive = 1.2f; }
-    else if (modeVal == 2) { lpHz = 3600.0f; hpHz = 170.0f; drive = 1.5f; modTarget = 1.0f; }
+    // Feedback-loop "CUT": each repeat is low-passed so echoes soften as they fade.
+    //   Digital: clean (Fruity Delay 2 style), only a gentle top-end roll-off.
+    //   Analog : darker repeats with a touch of drive.
+    //   Tape   : darker again, more drive and a little wow/flutter.
+    float lpHz = 12000.0f, hpHz = 20.0f, drive = 0.0f, modTarget = 0.0f;
+    if (modeVal == 1)      { lpHz = 6500.0f; hpHz = 70.0f;  drive = 1.1f; }
+    else if (modeVal == 2) { lpHz = 5000.0f; hpHz = 90.0f;  drive = 1.25f; modTarget = 1.0f; }
 
     const float sr = static_cast<float>(sampleRate);
     lpHz = juce::jmin (lpHz, sr * 0.45f);
@@ -163,8 +167,8 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
     const double slowInc = juce::MathConstants<double>::twoPi * 0.55 / sampleRate;   // wow
     const double fastInc = juce::MathConstants<double>::twoPi * 6.3  / sampleRate;   // flutter
-    const float wowDepth     = 0.0007f * sr;   // +-0.7 ms
-    const float flutterDepth = 0.00012f * sr;  // +-0.12 ms
+    const float wowDepth     = 0.00025f * sr;  // +-0.25 ms
+    const float flutterDepth = 0.00004f * sr;  // +-0.04 ms
 
     auto* leftIn  = buffer.getReadPointer (0);
     auto* rightIn = (numChannels > 1 && getTotalNumInputChannels() > 1) ? buffer.getReadPointer (1) : leftIn;
@@ -197,6 +201,8 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         y -= hpState[ch];
         if (drive > 0.0f)
             y = std::tanh (y * drive) / drive;
+        else if (std::abs (y) > 1.0f)   // Digital: only tames runaway at 100% feedback
+            y = std::copysign (1.0f + 0.5f * std::tanh (std::abs (y) - 1.0f), y);
         return y;
     };
 
@@ -217,9 +223,9 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         const int   readIdx = static_cast<int>(readPosition) % delayBufLen;
         const float frac    = readPosition - std::floor (readPosition);
 
-        // Tapped, filtered, saturated: used both for the output and for the feedback path
-        const float delayLeft  = shapeLoop (readCubic (delayLeftPtr,  readIdx, frac), 0);
-        const float delayRight = shapeLoop (readCubic (delayRightPtr, readIdx, frac), 1);
+        // Two delay lines: A (left input) and B (right input), tapped, filtered, saturated
+        const float tapA = shapeLoop (readCubic (delayLeftPtr,  readIdx, frac), 0);
+        const float tapB = shapeLoop (readCubic (delayRightPtr, readIdx, frac), 1);
 
         const float inLeft  = leftIn[sample];
         const float inRight = rightIn[sample];
@@ -232,23 +238,54 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
         const float duckGain = juce::jlimit (0.0f, 1.0f, 1.0f - (duckEnvelope * duckingVal));
 
-        if (isPingPong)
+        // Feed the lines. Ping Pong sums to mono and starts on one side (set by PAN) so the
+        // bounce is always audible; the other modes use the real stereo input through PAN.
+        float injA, injB;
+        if (fbMode == 2)
         {
-            const float monoIn = (inLeft + inRight) * 0.5f;
-            delayLeftPtr[writePosition]  = monoIn + (delayRight * feedbackVal);
-            delayRightPtr[writePosition] = delayLeft * feedbackVal;
+            const float mono = (inLeft + inRight) * 0.5f;
+            // first echo lands on the PAN side (left at centre); output is swapped below
+            injA = pingStartsLeft ? 0.0f : mono;
+            injB = pingStartsLeft ? mono : 0.0f;
         }
         else
         {
-            delayLeftPtr[writePosition]  = inLeft  + (delayLeft  * feedbackVal);
-            delayRightPtr[writePosition] = inRight + (delayRight * feedbackVal);
+            injA = inLeft  * inGainL;
+            injB = inRight * inGainR;
         }
 
-        const float outLeft  = (inLeft  * dryVal) + delayLeft  * duckGain * wetVal * leftPan;
-        const float outRight = (inRight * dryVal) + delayRight * duckGain * wetVal * rightPan;
+        float wetL, wetR;
+        if (fbMode == 0)        // Normal: echoes stay on the side of the input
+        {
+            delayLeftPtr[writePosition]  = injA + tapA * feedbackVal;
+            delayRightPtr[writePosition] = injB + tapB * feedbackVal;
+            wetL = tapA;  wetR = tapB;
+        }
+        else if (fbMode == 1)   // Inverted: output channels swapped (input right -> echoes left)
+        {
+            delayLeftPtr[writePosition]  = injA + tapA * feedbackVal;
+            delayRightPtr[writePosition] = injB + tapB * feedbackVal;
+            wetL = tapB;  wetR = tapA;
+        }
+        else                    // Ping Pong: inverted + cross-feedback, so sides swap on every echo
+        {
+            delayLeftPtr[writePosition]  = injA + tapB * feedbackVal;
+            delayRightPtr[writePosition] = injB + tapA * feedbackVal;
+            wetL = tapB;  wetR = tapA;
+        }
 
-        leftOut[sample]  = outLeft;
-        rightOut[sample] = outRight;
+        const float outLeft  = (inLeft  * dryVal) + wetL * duckGain * wetVal;
+        const float outRight = (inRight * dryVal) + wetR * duckGain * wetVal;
+
+        if (numChannels > 1)
+        {
+            leftOut[sample]  = outLeft;
+            rightOut[sample] = outRight;
+        }
+        else
+        {
+            leftOut[sample] = 0.5f * (outLeft + outRight);   // mono bus: fold the stereo echoes
+        }
 
         peakL = std::max (peakL, std::abs (outLeft));
         peakR = std::max (peakR, std::abs (outRight));
