@@ -36,8 +36,8 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
-    float getLeftLevel() const;
-    float getRightLevel() const;
+    float getLeftLevel();   // returns peak since last call
+    float getRightLevel();
 
     juce::AudioProcessorValueTreeState apvts;
 
@@ -52,8 +52,8 @@ private:
     float duckEnvelope = 0.0f;
     float lastSmoothParam = 50.0f;
 
-    juce::Atomic<float> leftLevel { 0.0f };
-    juce::Atomic<float> rightLevel { 0.0f };
+    std::atomic<float> leftLevel { 0.0f };
+    std::atomic<float> rightLevel { 0.0f };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DelayAudioProcessor)
 };

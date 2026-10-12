@@ -16,6 +16,7 @@ public:
 
 private:
     void timerCallback() override;
+    void setMode (int index);
     void updateModeButtons (int selectedIndex);
 
     DelayAudioProcessor& audioProcessor;

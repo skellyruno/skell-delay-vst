@@ -4,8 +4,8 @@
 DelayAudioProcessor::DelayAudioProcessor()
 #ifndef JucePlugin_PreferredChannelConfigurations
      : AudioProcessor (BusesProperties()
-                     #ifndef JucePlugin_IsMidiEffect
-                      #ifndef JucePlugin_IsSynth
+                     #if ! JucePlugin_IsMidiEffect
+                      #if ! JucePlugin_IsSynth
                        .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
                       #endif
                        .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
@@ -147,7 +147,7 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     const float duckRelease = 1.0f - std::exp (-1.0f / (0.150f * static_cast<float>(sampleRate)));
 
     auto* leftIn  = buffer.getReadPointer (0);
-    auto* rightIn = numChannels > 1 ? buffer.getReadPointer (1) : leftIn;
+    auto* rightIn = (numChannels > 1 && getTotalNumInputChannels() > 1) ? buffer.getReadPointer (1) : leftIn;
 
     auto* leftOut  = buffer.getWritePointer (0);
     auto* rightOut = numChannels > 1 ? buffer.getWritePointer (1) : leftOut;
@@ -211,12 +211,13 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         writePosition = (writePosition + 1) % delayBufLen;
     }
 
-    leftLevel.set (peakL);
-    rightLevel.set (peakR);
+    // Accumulate until the GUI reads (GUI resets via exchange), so short blocks don't hide peaks
+    leftLevel.store  (std::max (leftLevel.load(),  peakL));
+    rightLevel.store (std::max (rightLevel.load(), peakR));
 }
 
-float DelayAudioProcessor::getLeftLevel() const  { return leftLevel.get(); }
-float DelayAudioProcessor::getRightLevel() const { return rightLevel.get(); }
+float DelayAudioProcessor::getLeftLevel()  { return leftLevel.exchange (0.0f); }
+float DelayAudioProcessor::getRightLevel() { return rightLevel.exchange (0.0f); }
 
 bool DelayAudioProcessor::hasEditor() const { return true; }
 juce::AudioProcessorEditor* DelayAudioProcessor::createEditor()

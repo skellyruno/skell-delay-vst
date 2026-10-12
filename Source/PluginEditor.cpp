@@ -77,9 +77,9 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     addAndMakeVisible (analogBtn);
     addAndMakeVisible (tapeBtn);
 
-    digitalBtn.onClick = [this]() { updateModeButtons (0); };
-    analogBtn.onClick  = [this]() { updateModeButtons (1); };
-    tapeBtn.onClick    = [this]() { updateModeButtons (2); };
+    digitalBtn.onClick = [this]() { setMode (0); };
+    analogBtn.onClick  = [this]() { setMode (1); };
+    tapeBtn.onClick    = [this]() { setMode (2); };
 
     panAttach      = std::make_unique<SliderAttachment>(audioProcessor.apvts, "PAN", panSlider);
     smoothAttach   = std::make_unique<SliderAttachment>(audioProcessor.apvts, "SMOOTH", smoothSlider);
@@ -98,8 +98,7 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     drySlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v * 100.0)); };
     duckingSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v * 100.0)); };
 
-    int currentMode = static_cast<int>(audioProcessor.apvts.getRawParameterValue ("MODE")->load());
-    updateModeButtons (currentMode);
+    updateModeButtons (static_cast<int>(audioProcessor.apvts.getRawParameterValue ("MODE")->load()));
 
     startTimerHz (30);
     setSize (638, 204);
@@ -111,12 +110,20 @@ DelayAudioProcessorEditor::~DelayAudioProcessorEditor()
     setLookAndFeel (nullptr);
 }
 
+void DelayAudioProcessorEditor::setMode (int index)
+{
+    if (auto* modeParam = audioProcessor.apvts.getParameter ("MODE"))
+    {
+        modeParam->beginChangeGesture();
+        modeParam->setValueNotifyingHost (modeParam->convertTo0to1 (static_cast<float>(index)));
+        modeParam->endChangeGesture();
+    }
+    updateModeButtons (index);
+}
+
+// UI only - never writes the parameter, so host automation / preset recall stays in sync
 void DelayAudioProcessorEditor::updateModeButtons (int selectedIndex)
 {
-    auto* modeParam = audioProcessor.apvts.getParameter ("MODE");
-    if (modeParam != nullptr)
-        modeParam->setValueNotifyingHost (modeParam->convertTo0to1 (static_cast<float>(selectedIndex)));
-
     digitalBtn.setToggleState (selectedIndex == 0, juce::dontSendNotification);
     analogBtn.setToggleState  (selectedIndex == 1, juce::dontSendNotification);
     tapeBtn.setToggleState    (selectedIndex == 2, juce::dontSendNotification);
@@ -124,6 +131,8 @@ void DelayAudioProcessorEditor::updateModeButtons (int selectedIndex)
 
 void DelayAudioProcessorEditor::timerCallback()
 {
+    updateModeButtons (static_cast<int>(audioProcessor.apvts.getRawParameterValue ("MODE")->load()));
+
     leftMeter.setLevel (audioProcessor.getLeftLevel());
     rightMeter.setLevel (audioProcessor.getRightLevel());
 
@@ -147,19 +156,21 @@ void DelayAudioProcessorEditor::paint (juce::Graphics& g)
 
 void DelayAudioProcessorEditor::resized()
 {
-    leftMeter.setBounds (10, 42, 8, 128);
-    rightMeter.setBounds (620, 42, 8, 128);
+    // Meters sit just inside the frame artwork, below the corner skeletons
+    leftMeter.setBounds (30, 70, 6, 90);
+    rightMeter.setBounds (602, 70, 6, 90);
 
-    panSlider.setBounds (40, 80, 48, 48);
-    panLabel.setBounds (32, 130, 64, 14);
+    // Left group - knobs share a centre line, labels share one baseline
+    panSlider.setBounds (44, 84, 48, 48);
+    panLabel.setBounds (36, 148, 64, 14);
 
-    smoothSlider.setBounds (104, 80, 48, 48);
-    smoothLabel.setBounds (96, 130, 64, 14);
+    smoothSlider.setBounds (108, 84, 48, 48);
+    smoothLabel.setBounds (100, 148, 64, 14);
 
     timeSlider.setBounds (174, 72, 72, 72);
-    timeLabel.setBounds (178, 146, 64, 14);
+    timeLabel.setBounds (178, 148, 64, 14);
 
-    // Centered Tap Visualizer Screen layout (Presets removed)
+    // Centre: tap display, mode buttons, ping-pong
     delayDisplay.setBounds (269, 56, 100, 26);
 
     digitalBtn.setBounds (260, 92, 38, 15);
@@ -169,15 +180,17 @@ void DelayAudioProcessorEditor::resized()
     pingPongButton.setBounds (311, 112, 16, 16);
     pingPongLabel.setBounds (269, 129, 100, 14);
 
+    // Right group
     feedbackSlider.setBounds (390, 72, 72, 72);
-    feedbackLabel.setBounds (394, 146, 64, 14);
+    feedbackLabel.setBounds (394, 148, 64, 14);
 
-    drySlider.setBounds (470, 68, 44, 44);
-    dryLabel.setBounds (460, 114, 64, 14);
+    drySlider.setBounds (480, 62, 40, 40);
+    dryLabel.setBounds (468, 102, 64, 14);
 
-    wetSlider.setBounds (525, 68, 44, 44);
-    wetLabel.setBounds (515, 114, 64, 14);
+    wetSlider.setBounds (536, 62, 40, 40);
+    wetLabel.setBounds (524, 102, 64, 14);
 
-    duckingSlider.setBounds (498, 126, 44, 44);
-    duckingLabel.setBounds (483, 170, 74, 14);
+    // Kept clear of the bottom ornament
+    duckingSlider.setBounds (508, 116, 40, 40);
+    duckingLabel.setBounds (493, 156, 70, 14);
 }

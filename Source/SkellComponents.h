@@ -6,7 +6,10 @@ class SkellMeter : public juce::Component
 public:
     void setLevel (float newLevel)
     {
-        level = juce::jlimit (0.0f, 1.0f, newLevel);
+        // Peak (linear) -> dB scale (-48..0 dB) with instant attack and smooth fall
+        const float db = juce::Decibels::gainToDecibels (newLevel, -48.0f);
+        const float target = juce::jlimit (0.0f, 1.0f, (db + 48.0f) / 48.0f);
+        level = (target > level) ? target : level * 0.88f;
         repaint();
     }
 
@@ -25,7 +28,7 @@ public:
         {
             float yPos = bounds.getBottom() - ((i + 1) * (segHeight + gap));
             bool isLit = i < litSegments;
-            juce::Colour ledColour = (i > 15) ? juce::Colour (0xffff3333) : juce::Colour (0xff39ff14);
+            juce::Colour ledColour = (i >= 16) ? juce::Colour (0xffff3333) : juce::Colour (0xff39ff14);
             g.setColour (isLit ? ledColour : ledColour.withAlpha (0.15f));
             g.fillRect (bounds.getX() + 1.5f, yPos, bounds.getWidth() - 3.0f, segHeight);
         }
