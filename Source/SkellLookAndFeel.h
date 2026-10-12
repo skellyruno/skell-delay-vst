@@ -125,32 +125,32 @@ public:
         }
     }
 
+    // Segmented control: buttons joined via setConnectedEdges share one outline
     void drawButtonBackground (juce::Graphics& g, juce::Button& button,
                                 const juce::Colour& backgroundColour,
                                 bool shouldDrawButtonAsHighlighted,
                                 bool shouldDrawButtonAsDown) override
     {
-        juce::ignoreUnused (backgroundColour, shouldDrawButtonAsHighlighted, shouldDrawButtonAsDown);
+        juce::ignoreUnused (backgroundColour, shouldDrawButtonAsDown);
 
-        auto bounds = button.getLocalBounds().toFloat().reduced (1.0f);
+        auto bounds = button.getLocalBounds().toFloat().reduced (0.5f);
         const bool isActive = button.getToggleState();
+        const int edges = button.getConnectedEdgeFlags();
+        const bool l = (edges & juce::Button::ConnectedOnLeft)  == 0;
+        const bool r = (edges & juce::Button::ConnectedOnRight) == 0;
+
+        juce::Path shape;
+        shape.addRoundedRectangle (bounds.getX(), bounds.getY(), bounds.getWidth(), bounds.getHeight(),
+                                   4.0f, 4.0f, l, r, l, r);
 
         if (isActive)
-        {
             g.setColour (juce::Colour (0xff39ff14));
-            g.fillRoundedRectangle (bounds, 2.5f);
-
-            g.setColour (juce::Colour (0xff39ff14).withAlpha (0.5f));
-            g.drawRoundedRectangle (bounds.expanded (1.0f), 3.0f, 1.25f);
-        }
         else
-        {
-            g.setColour (juce::Colour (0xff091404));
-            g.fillRoundedRectangle (bounds, 2.5f);
+            g.setColour (shouldDrawButtonAsHighlighted ? juce::Colour (0xff12280a) : juce::Colour (0xff091404));
+        g.fillPath (shape);
 
-            g.setColour (juce::Colour (0xff134805));
-            g.drawRoundedRectangle (bounds, 2.5f, 1.0f);
-        }
+        g.setColour (juce::Colour (0xff39ff14).withAlpha (0.3f));
+        g.strokePath (shape, juce::PathStrokeType (1.0f));
     }
 
     void drawButtonText (juce::Graphics& g, juce::TextButton& button,
@@ -161,7 +161,7 @@ public:
         const bool isActive = button.getToggleState();
 
         g.setColour (isActive ? juce::Colour (0xff040a02) : juce::Colour (0xff2ccb0f));
-        g.setFont (juce::FontOptions (7.5f).withStyle ("Bold"));
+        g.setFont (juce::FontOptions (8.0f).withStyle ("Bold"));
         g.drawText (button.getButtonText(), button.getLocalBounds(), juce::Justification::centred, false);
     }
 };
