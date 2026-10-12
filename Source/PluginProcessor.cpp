@@ -79,9 +79,11 @@ void DelayAudioProcessor::prepareToPlay (double sr, int samplesPerBlock)
     writePosition = 0;
     duckEnvelope = 0.0f;
 
-    // Initialize smoother ONCE here
-    smoothDelayTime.reset (sampleRate, 0.05);
-    smoothDelayTime.setCurrentAndTargetValue ((250.0f / 1000.0f) * static_cast<float>(sampleRate));
+    // Initialise smoother from the current parameter values (not hardcoded defaults)
+    lastSmoothParam = apvts.getRawParameterValue ("SMOOTH")->load();
+    smoothDelayTime.reset (sampleRate, juce::jmax (0.001, lastSmoothParam * 0.001));
+    smoothDelayTime.setCurrentAndTargetValue (
+        (apvts.getRawParameterValue ("DELAY_TIME")->load() / 1000.0f) * static_cast<float>(sampleRate));
 }
 
 void DelayAudioProcessor::releaseResources() {}
@@ -121,11 +123,21 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     const bool  isPingPong   = apvts.getRawParameterValue ("PINGPONG")->load() > 0.5f;
     const int   modeVal      = static_cast<int>(apvts.getRawParameterValue ("MODE")->load());
 
-    // ONLY set target value here (DO NOT call .reset() inside processBlock!)
+    // SMOOTH (0-100) = glide time in ms. Only re-time the ramp when the knob moves,
+    // preserving the current value so there is no jump/click.
+    const float smoothParam = apvts.getRawParameterValue ("SMOOTH")->load();
+    if (smoothParam != lastSmoothParam)
+    {
+        lastSmoothParam = smoothParam;
+        const float current = smoothDelayTime.getCurrentValue();
+        smoothDelayTime.reset (sampleRate, juce::jmax (0.001, smoothParam * 0.001));
+        smoothDelayTime.setCurrentAndTargetValue (current);
+    }
+
     smoothDelayTime.setTargetValue ((targetTimeMs / 1000.0f) * static_cast<float>(sampleRate));
 
     const int delayBufLen = delayBuffer.getNumSamples();
-    float maxPeak = 0.0f;
+    float peakL = 0.0f, peakR = 0.0f;
 
     const float quarterPi = juce::MathConstants<float>::pi * 0.25f;
     float leftPan  = std::cos ((panVal + 1.0f) * quarterPi);
@@ -193,13 +205,14 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         leftOut[sample]  = outLeft;
         rightOut[sample] = outRight;
 
-        maxPeak = std::max ({ maxPeak, std::abs (outLeft), std::abs (outRight) });
+        peakL = std::max (peakL, std::abs (outLeft));
+        peakR = std::max (peakR, std::abs (outRight));
 
         writePosition = (writePosition + 1) % delayBufLen;
     }
 
-    leftLevel.set (maxPeak);
-    rightLevel.set (maxPeak);
+    leftLevel.set (peakL);
+    rightLevel.set (peakR);
 }
 
 float DelayAudioProcessor::getLeftLevel() const  { return leftLevel.get(); }
