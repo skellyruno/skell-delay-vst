@@ -40,7 +40,7 @@ private:
 
 // --- Compact echo visualiser ---------------------------------------------------
 // Bars = the repeat train, decaying with FEEDBACK (ducking trims repeats after the first).
-// A glowing envelope line joins the bar tops, and a pulse sweeps across the taps at the
+// A pulse sweeps across the taps at the
 // real delay time so you can see the tempo of the echoes.
 //   Normal / Inverted : mirrored bars about the centre line
 //   Ping Pong         : repeats alternate up (L) / down (R)
@@ -75,7 +75,7 @@ public:
         g.drawHorizontalLine (juce::roundToInt (midY), area.getX(), area.getRight());
 
         const int numTaps = 12;
-        const float barW = 3.0f;
+        const float barW = 5.0f;
         const float step = (area.getWidth() - barW) / (numTaps - 1);
         const float fb = juce::jlimit (0.05f, 1.0f, feedbackVal);
         const float duckFactor = 1.0f - duckingVal * 0.4f;
@@ -86,14 +86,11 @@ public:
         const int activeTap = static_cast<int>(phase);
         const float pulse = 1.0f - static_cast<float>(phase - activeTap);   // 1 -> 0 after each hit
 
-        juce::Path envelopeTop, envelopeBottom;
-
         for (int i = 0; i < numTaps; ++i)
         {
             const float level = std::pow (fb, static_cast<float>(i)) * (i > 0 ? duckFactor : 1.0f);
             const float h = juce::jmax (1.5f, halfH * level);
             const float x = area.getX() + i * step;
-            const float cx = x + barW * 0.5f;
 
             float top, bottom;
             if (fbMode == 2)
@@ -118,17 +115,7 @@ public:
                 g.setColour (lime.withAlpha (0.18f * boost));
                 g.fillRoundedRectangle (x - 2.0f, top - 2.0f, barW + 4.0f, bottom - top + 4.0f, 2.0f);
             }
-
-            const float envTop = (fbMode == 2) ? (i % 2 == 0 ? top : bottom) : top;
-            if (i == 0) { envelopeTop.startNewSubPath (cx, envTop); envelopeBottom.startNewSubPath (cx, bottom); }
-            else        { envelopeTop.lineTo (cx, envTop);          envelopeBottom.lineTo (cx, bottom); }
         }
-
-        // glowing decay curve over the bar tops (mirrored mode shows both sides)
-        g.setColour (lime.withAlpha (0.35f));
-        g.strokePath (envelopeTop, juce::PathStrokeType (1.0f));
-        if (fbMode != 2)
-            g.strokePath (envelopeBottom, juce::PathStrokeType (1.0f));
 
         // single hairline frame
         g.setColour (lime.withAlpha (0.25f));

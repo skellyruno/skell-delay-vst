@@ -1,6 +1,31 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+namespace
+{
+    // Keeps the feedback loop bounded even at 100% feedback (transparent below 1.0)
+    inline float loopLimit (float y)
+    {
+        const float a = std::abs (y);
+        return a <= 1.0f ? y : std::copysign (1.0f + 0.5f * std::tanh (a - 1.0f), y);
+    }
+
+    // Final safety limiter on the plugin output (transparent below -0.4 dBFS)
+    inline float safetyLimit (float x)
+    {
+        const float a = std::abs (x);
+        return a <= 0.95f ? x : std::copysign (0.95f + 0.05f * std::tanh ((a - 0.95f) / 0.05f), x);
+    }
+
+    // First-order all-pass section (phaser stage)
+    inline float allPass (float x, float a, float& z)
+    {
+        const float y = a * x + z;
+        z = x - a * y;
+        return y;
+    }
+}
+
 DelayAudioProcessor::DelayAudioProcessor()
 #ifndef JucePlugin_PreferredChannelConfigurations
      : AudioProcessor (BusesProperties()
@@ -20,47 +45,58 @@ DelayAudioProcessor::~DelayAudioProcessor() {}
 
 juce::AudioProcessorValueTreeState::ParameterLayout DelayAudioProcessor::createParameterLayout()
 {
+    using Range = juce::NormalisableRange<float>;
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
 
-    params.push_back (std::make_unique<juce::AudioParameterFloat>(
-        "PAN", "Pan", juce::NormalisableRange<float>(-1.0f, 1.0f, 0.01f), 0.0f));
+    auto addFloat = [&params] (const char* id, const char* name, Range range, float def)
+    {
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (id, name, range, def));
+    };
 
-    params.push_back (std::make_unique<juce::AudioParameterFloat>(
-        "SMOOTH", "Smoothing", juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 50.0f));
-
-    juce::NormalisableRange<float> timeRange (31.25f, 2000.0f, 0.1f);
+    // ---- Delay ----
+    Range timeRange (0.01f, 2500.0f, 0.01f);       // Comeback Kid free mode: 0.01 ms - 2500 ms
     timeRange.setSkewForCentre (250.0f);
+    addFloat ("DELAY_TIME", "Delay Time", timeRange, 250.0f);
 
-    params.push_back (std::make_unique<juce::AudioParameterFloat>(
-        "DELAY_TIME", "Delay Time", timeRange, 250.0f));
-
-    // Free (ms) / tempo-synced time
-    params.push_back (std::make_unique<juce::AudioParameterBool>("SYNC", "Tempo Sync", false));
+    params.push_back (std::make_unique<juce::AudioParameterBool> ("SYNC", "Tempo Sync", false));
 
     juce::StringArray divNames;
     for (const auto& d : kSyncDivisions)
         divNames.add (d.name);
-    params.push_back (std::make_unique<juce::AudioParameterChoice>(
-        "SYNC_DIV", "Sync Note", divNames, kDefaultSyncDivision));
+    params.push_back (std::make_unique<juce::AudioParameterChoice> ("SYNC_DIV", "Sync Note", divNames, kDefaultSyncDivision));
+    params.push_back (std::make_unique<juce::AudioParameterChoice> (
+        "FEEL", "Feel", juce::StringArray { "Straight", "Dotted", "Triplet" }, 0));
 
-    params.push_back (std::make_unique<juce::AudioParameterFloat>(
-        "FEEDBACK", "Feedback", juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
-
-    params.push_back (std::make_unique<juce::AudioParameterFloat>(
-        "DUCKING", "Ducking", juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
-
-    params.push_back (std::make_unique<juce::AudioParameterFloat>(
-        "DRY", "Dry Level", juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
-
-    params.push_back (std::make_unique<juce::AudioParameterFloat>(
-        "WET", "Wet Level", juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
-
-    // Same three feedback routings as Fruity Delay 2
-    params.push_back (std::make_unique<juce::AudioParameterChoice>(
+    addFloat ("FEEDBACK", "Feedback", Range (0.0f, 1.0f, 0.01f), 0.5f);
+    params.push_back (std::make_unique<juce::AudioParameterChoice> (
         "FB_MODE", "Feedback Mode", juce::StringArray { "Normal", "Inverted", "Ping Pong" }, 0));
+    params.push_back (std::make_unique<juce::AudioParameterBool> ("DESTINY", "Destiny", false));
+    addFloat ("SMOOTH", "Smoothing", Range (0.0f, 100.0f, 1.0f), 50.0f);
 
-    params.push_back (std::make_unique<juce::AudioParameterChoice>(
-        "MODE", "Mode", juce::StringArray { "Digital", "Analog", "Tape" }, 0));
+    // ---- Shaper ----
+    Range loRange (20.0f, 2000.0f, 1.0f);   loRange.setSkewForCentre (200.0f);
+    Range hiRange (1000.0f, 20000.0f, 1.0f); hiRange.setSkewForCentre (6000.0f);
+    addFloat ("LOCUT", "Lo-Cut", loRange, 20.0f);
+    addFloat ("HICUT", "Hi-Cut", hiRange, 20000.0f);
+    addFloat ("ATTACK",  "Attack",  Range (-1.0f, 1.0f, 0.01f), 0.0f);
+    addFloat ("SUSTAIN", "Sustain", Range (-1.0f, 1.0f, 0.01f), 0.0f);
+
+    // ---- Flavor ----
+    params.push_back (std::make_unique<juce::AudioParameterBool> ("CHEAP", "Cheap", false));
+    addFloat ("TAPE",  "Tape",  Range (0.0f, 1.0f, 0.01f), 0.0f);
+    addFloat ("SWIRL", "Swirl", Range (0.0f, 1.0f, 0.01f), 0.0f);
+    addFloat ("SAUCE", "Sauce", Range (0.0f, 1.0f, 0.01f), 0.0f);
+
+    // ---- Stereo ----
+    addFloat ("WIDER",  "Wider",  Range (0.0f, 1.0f, 0.01f), 0.0f);
+    addFloat ("RICHER", "Richer", Range (0.0f, 1.0f, 0.01f), 0.0f);
+    addFloat ("PAN",    "Pan",    Range (-1.0f, 1.0f, 0.01f), 0.0f);
+    params.push_back (std::make_unique<juce::AudioParameterBool> ("MONO", "Mono", false));
+
+    // ---- Output ----
+    addFloat ("DUCKING", "Ducker", Range (0.0f, 1.0f, 0.01f), 0.0f);
+    addFloat ("DRY", "Direct Level",  Range (0.0f, 1.0f, 0.01f), 1.0f);
+    addFloat ("WET", "Delayed Level", Range (0.0f, 1.0f, 0.01f), 1.0f);
 
     return { params.begin(), params.end() };
 }
@@ -69,7 +105,7 @@ const juce::String DelayAudioProcessor::getName() const { return JucePlugin_Name
 bool DelayAudioProcessor::acceptsMidi() const { return false; }
 bool DelayAudioProcessor::producesMidi() const { return false; }
 bool DelayAudioProcessor::isMidiEffect() const { return false; }
-double DelayAudioProcessor::getTailLengthSeconds() const { return 6.0; }
+double DelayAudioProcessor::getTailLengthSeconds() const { return 8.0; }
 
 int DelayAudioProcessor::getNumPrograms() { return 1; }
 int DelayAudioProcessor::getCurrentProgram() { return 0; }
@@ -80,41 +116,69 @@ void DelayAudioProcessor::changeProgramName (int, const juce::String&) {}
 float DelayAudioProcessor::computeDelayMs() const
 {
     float ms;
-    if (apvts.getRawParameterValue ("SYNC")->load() > 0.5f)
+    if (param ("SYNC") > 0.5f)
     {
-        const int idx = juce::jlimit (0, kNumSyncDivisions - 1,
-                                      static_cast<int>(apvts.getRawParameterValue ("SYNC_DIV")->load() + 0.5f));
-        ms = kSyncDivisions[idx].beats * 60000.0f / static_cast<float>(juce::jmax (20.0, hostBpm));
+        const int idx  = juce::jlimit (0, kNumSyncDivisions - 1, static_cast<int> (param ("SYNC_DIV") + 0.5f));
+        const int feel = juce::jlimit (0, 2, static_cast<int> (param ("FEEL") + 0.5f));
+        ms = kSyncDivisions[idx].beats * kFeelMultiplier[feel] * 60000.0f
+               / static_cast<float> (juce::jmax (20.0, hostBpm));
     }
     else
     {
-        ms = apvts.getRawParameterValue ("DELAY_TIME")->load();
+        ms = param ("DELAY_TIME");
     }
 
-    // never read past the end of the delay line
-    const float maxMs = 1000.0f * static_cast<float>(delayBuffer.getNumSamples() - 8) / static_cast<float>(sampleRate);
-    return juce::jlimit (1.0f, juce::jmax (1.0f, maxMs), ms);
+    // keep the read head inside the buffer (and at least a few samples behind the write head)
+    const float minMs = 3000.0f / static_cast<float> (sampleRate);
+    const float maxMs = 1000.0f * static_cast<float> (delayBuffer.getNumSamples() - 16) / static_cast<float> (sampleRate);
+    return juce::jlimit (minMs, juce::jmax (minMs, maxMs), ms);
 }
 
 void DelayAudioProcessor::prepareToPlay (double sr, int samplesPerBlock)
 {
-    juce::ignoreUnused (samplesPerBlock);
     sampleRate = sr;
 
-    const int maxDelaySamples = static_cast<int>(sampleRate * 6.0);
+    const int maxDelaySamples = static_cast<int> (sampleRate * 6.0);
     delayBuffer.setSize (2, maxDelaySamples);
     delayBuffer.clear();
-
     writePosition = 0;
-    duckEnvelope = 0.0f;
-    lpState[0] = lpState[1] = hpState[0] = hpState[1] = lp2State[0] = lp2State[1] = 0.0f;
-    lfoPhaseSlow = lfoPhaseFast = 0.0;
-    wowDepth = flutterDepth = 0.0f;
 
-    // Initialise smoother from the current parameter values (not hardcoded defaults)
-    lastSmoothParam = apvts.getRawParameterValue ("SMOOTH")->load();
+    const juce::dsp::ProcessSpec spec { sampleRate, static_cast<juce::uint32> (juce::jmax (1, samplesPerBlock)), 1 };
+    for (int c = 0; c < 2; ++c)
+    {
+        loCut[c].prepare (spec);
+        loCut[c].setType (juce::dsp::StateVariableTPTFilterType::highpass);
+        loCut[c].reset();
+        hiCut[c].prepare (spec);
+        hiCut[c].setType (juce::dsp::StateVariableTPTFilterType::lowpass);
+        hiCut[c].reset();
+
+        destinyTarget[c] = destinyValue[c] = 0.0f;
+        tapeLp[c] = 0.0f;
+        phaserFeedback[c] = 0.0f;
+        for (auto& z : apState[c]) z = 0.0f;
+    }
+
+    phaseWider = phaseRicher1 = phaseRicher2 = phaseSwirl = 0.0;
+    destinyCountdown = 0;
+    envFast = envSlow = 0.0f;
+    duckEnvelope = 0.0f;
+
+    reverb.setSampleRate (sampleRate);
+    juce::Reverb::Parameters rp;
+    rp.roomSize = 0.62f;  rp.damping = 0.55f;  rp.wetLevel = 0.33f;  rp.dryLevel = 0.0f;
+    rp.width = 1.0f;      rp.freezeMode = 0.0f;
+    reverb.setParameters (rp);
+    reverb.reset();
+
+    const size_t scratch = static_cast<size_t> (juce::jmax (samplesPerBlock, 4096));
+    wetL.assign (scratch, 0.0f);  wetR.assign (scratch, 0.0f);
+    revL.assign (scratch, 0.0f);  revR.assign (scratch, 0.0f);
+    duckBuf.assign (scratch, 1.0f);
+
+    lastSmoothParam = param ("SMOOTH");
     smoothDelayTime.reset (sampleRate, juce::jmax (0.001, lastSmoothParam * 0.001));
-    smoothDelayTime.setCurrentAndTargetValue ((computeDelayMs() / 1000.0f) * static_cast<float>(sampleRate));
+    smoothDelayTime.setCurrentAndTargetValue ((computeDelayMs() / 1000.0f) * static_cast<float> (sampleRate));
 }
 
 void DelayAudioProcessor::releaseResources() {}
@@ -139,23 +203,33 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     juce::ignoreUnused (midiMessages);
     juce::ScopedNoDenormals noDenormals;
 
-    const int numSamples = buffer.getNumSamples();
+    const int numSamples  = buffer.getNumSamples();
     const int numChannels = buffer.getNumChannels();
 
-    if (numChannels == 0)
+    if (numChannels == 0 || numSamples == 0 || delayBuffer.getNumSamples() == 0)
         return;
 
-    const float panVal       = apvts.getRawParameterValue ("PAN")->load();
-    const float feedbackVal  = apvts.getRawParameterValue ("FEEDBACK")->load();
-    const float duckingVal   = apvts.getRawParameterValue ("DUCKING")->load();
-    const float dryVal       = apvts.getRawParameterValue ("DRY")->load();
-    const float wetVal       = apvts.getRawParameterValue ("WET")->load();
-    const int   fbMode       = static_cast<int>(apvts.getRawParameterValue ("FB_MODE")->load());
-    const int   modeVal      = static_cast<int>(apvts.getRawParameterValue ("MODE")->load());
+    // ---------------------------------------------------------------- parameters
+    const float panVal      = param ("PAN");
+    const float feedbackVal = param ("FEEDBACK");
+    const float duckingVal  = param ("DUCKING");
+    const float dryVal      = param ("DRY");
+    const float wetVal      = param ("WET");
+    const int   fbMode      = static_cast<int> (param ("FB_MODE"));
+    const bool  destiny     = param ("DESTINY") > 0.5f;
+    const float widerAmt    = param ("WIDER");
+    const float richerAmt   = param ("RICHER");
+    const float attackAmt   = param ("ATTACK");
+    const float sustainAmt  = param ("SUSTAIN");
+    const bool  cheap       = param ("CHEAP") > 0.5f;
+    const float tapeAmt     = param ("TAPE");
+    const float swirlAmt    = param ("SWIRL");
+    const float sauceAmt    = param ("SAUCE");
+    const bool  mono        = param ("MONO") > 0.5f;
 
     // SMOOTH (0-100) = glide time in ms. Only re-time the ramp when the knob moves,
     // preserving the current value so there is no jump/click.
-    const float smoothParam = apvts.getRawParameterValue ("SMOOTH")->load();
+    const float smoothParam = param ("SMOOTH");
     if (smoothParam != lastSmoothParam)
     {
         lastSmoothParam = smoothParam;
@@ -172,46 +246,67 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
     const float delayMs = computeDelayMs();
     effectiveDelayMs.store (delayMs);
-    smoothDelayTime.setTargetValue ((delayMs / 1000.0f) * static_cast<float>(sampleRate));
+    smoothDelayTime.setTargetValue ((delayMs / 1000.0f) * static_cast<float> (sampleRate));
 
+    const float sr = static_cast<float> (sampleRate);
     const int delayBufLen = delayBuffer.getNumSamples();
-    float peakL = 0.0f, peakR = 0.0f;
+    const float maxDelaySamples = static_cast<float> (delayBufLen - 16);
 
-    // PAN is an INPUT pan (as in Fruity Delay 2): it positions the signal feeding the delay,
-    // the dry signal is untouched. Balance law: centre = unity on both sides.
-    const float inGainL = panVal > 0.0f ? 1.0f - panVal : 1.0f;
-    const float inGainR = panVal < 0.0f ? 1.0f + panVal : 1.0f;
-    const bool  pingStartsLeft = panVal <= 0.0f;
+    if (static_cast<int> (wetL.size()) < numSamples)   // host gave a bigger block than announced
+    {
+        wetL.resize (static_cast<size_t> (numSamples));  wetR.resize (static_cast<size_t> (numSamples));
+        revL.resize (static_cast<size_t> (numSamples));  revR.resize (static_cast<size_t> (numSamples));
+        duckBuf.resize (static_cast<size_t> (numSamples));
+    }
 
-    const float duckAttack  = 1.0f - std::exp (-1.0f / (0.004f * static_cast<float>(sampleRate)));
-    const float duckRelease = 1.0f - std::exp (-1.0f / (0.250f * static_cast<float>(sampleRate)));
+    // Filters in the feedback loop (Lo-Cut / Hi-Cut)
+    const float loHz = juce::jlimit (20.0f, 2000.0f, param ("LOCUT"));
+    const float hiHz = juce::jlimit (1000.0f, sr * 0.45f, param ("HICUT"));
+    // Fully open positions bypass the filters, so the default sound is untouched
+    const bool loCutOn = loHz > 20.5f;
+    const bool hiCutOn = hiHz < 19999.0f;
+    for (int c = 0; c < 2; ++c)
+    {
+        loCut[c].setCutoffFrequency (loHz);
+        hiCut[c].setCutoffFrequency (hiHz);
+        if (! loCutOn) loCut[c].reset();
+        if (! hiCutOn) hiCut[c].reset();
+    }
 
-    // Character of the repeats (every pass through the loop gets this treatment):
-    //   Digital: clean, only a gentle top-end roll-off.
-    //   Analog : bucket-brigade echo - dark 2-pole low-pass, soft drive, slow clock-drift
-    //            chorus on the repeats.
-    //   Tape   : tape echo - softer roll-off, heavier saturation, wow & flutter.
-    float lpHz = 12000.0f, hpHz = 20.0f, drive = 0.0f;
-    float wowTargetMs = 0.0f, flutterTargetMs = 0.0f, wowHz = 0.55f;
-    bool twoPole = false;
-    if (modeVal == 1)      { lpHz = 3800.0f; hpHz = 80.0f;  drive = 1.3f;  twoPole = true;
-                             wowTargetMs = 0.35f; flutterTargetMs = 0.0f;  wowHz = 0.9f; }
-    else if (modeVal == 2) { lpHz = 5200.0f; hpHz = 110.0f; drive = 1.6f;
-                             wowTargetMs = 0.55f; flutterTargetMs = 0.08f; wowHz = 0.55f; }
+    // Time-modulation depths (samples)
+    const float widerDepth  = widerAmt  * 0.006f * sr;    // up to +-6 ms, opposite on L/R
+    const float richerDepth = richerAmt * 0.004f * sr;    // up to +-4 ms pitch wobble
+    const double incWider   = juce::MathConstants<double>::twoPi * 0.23 / sampleRate;
+    const double incRicher1 = juce::MathConstants<double>::twoPi * 0.70 / sampleRate;
+    const double incRicher2 = juce::MathConstants<double>::twoPi * 1.31 / sampleRate;
+    const double incSwirl   = juce::MathConstants<double>::twoPi * 0.35 / sampleRate;
 
-    const float sr = static_cast<float>(sampleRate);
-    lpHz = juce::jmin (lpHz, sr * 0.45f);
-    const float lpCoef = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * lpHz / sr);
-    const float hpCoef = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * hpHz / sr);
+    const int   destinyPeriod = static_cast<int> (0.11f * sr);
+    const float destinySmooth = 1.0f - std::exp (-1.0f / (0.04f * sr));
 
-    const double slowInc = juce::MathConstants<double>::twoPi * wowHz / sampleRate;   // wow / clock drift
-    const double fastInc = juce::MathConstants<double>::twoPi * 6.3  / sampleRate;   // flutter
-    const float wowDepthTarget     = 0.001f * wowTargetMs * sr;
-    const float flutterDepthTarget = 0.001f * flutterTargetMs * sr;
+    // Ducker: attenuates the wet signal while the dry input is playing
+    const float duckAttack  = 1.0f - std::exp (-1.0f / (0.004f * sr));
+    const float duckRelease = 1.0f - std::exp (-1.0f / (0.250f * sr));
+
+    // Transient shaper detectors
+    const float fastA = 1.0f - std::exp (-1.0f / (0.0005f * sr));
+    const float fastR = 1.0f - std::exp (-1.0f / (0.020f  * sr));
+    const float slowA = 1.0f - std::exp (-1.0f / (0.020f  * sr));
+    const float slowR = 1.0f - std::exp (-1.0f / (0.200f  * sr));
+    const bool shaperOn = (attackAmt != 0.0f || sustainAmt != 0.0f);
+
+    // Tape: saturation drive, HF roll-off and a little hiss
+    const float tapeDrive = 1.0f + 5.0f * tapeAmt;
+    const float tapeHz    = 18000.0f * std::pow (0.3f, tapeAmt);
+    const float tapeCoef  = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * juce::jmin (tapeHz, sr * 0.45f) / sr);
+    const float hissGain  = 0.002f * tapeAmt * tapeAmt;
+
+    // Wet pan (balance law, centre = unity)
+    const float panGainL = panVal > 0.0f ? 1.0f - panVal : 1.0f;
+    const float panGainR = panVal < 0.0f ? 1.0f + panVal : 1.0f;
 
     auto* leftIn  = buffer.getReadPointer (0);
     auto* rightIn = (numChannels > 1 && getTotalNumInputChannels() > 1) ? buffer.getReadPointer (1) : leftIn;
-
     auto* leftOut  = buffer.getWritePointer (0);
     auto* rightOut = numChannels > 1 ? buffer.getWritePointer (1) : leftOut;
 
@@ -231,116 +326,205 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         return ((c3 * f + c2) * f + c1) * f + y1;
     };
 
-    // High-pass then low-pass then soft saturation (unity small-signal gain)
-    auto shapeLoop = [&] (float x, int ch)
+    auto readDelayed = [&] (const float* buf, float delaySamples)
     {
-        lpState[ch] += lpCoef * (x - lpState[ch]);
-        float y = lpState[ch];
-        if (twoPole)
-        {
-            lp2State[ch] += lpCoef * (y - lp2State[ch]);
-            y = lp2State[ch];
-        }
-        hpState[ch] += hpCoef * (y - hpState[ch]);
-        y -= hpState[ch];
-        if (drive > 0.0f)
-            y = std::tanh (y * drive) / drive;
-        else if (std::abs (y) > 1.0f)   // Digital: only tames runaway at 100% feedback
-            y = std::copysign (1.0f + 0.5f * std::tanh (std::abs (y) - 1.0f), y);
-        return y;
+        float pos = static_cast<float> (writePosition) - delaySamples;
+        while (pos < 0.0f)
+            pos += static_cast<float> (delayBufLen);
+        int i1 = static_cast<int> (pos);
+        const float frac = pos - static_cast<float> (i1);
+        if (i1 >= delayBufLen) i1 -= delayBufLen;
+        return readCubic (buf, i1, frac);
     };
 
-    for (int sample = 0; sample < numSamples; ++sample)
+    float peakL = 0.0f, peakR = 0.0f;
+
+    // ================================================================ pass 1: delay engine + wet flavour chain
+    for (int i = 0; i < numSamples; ++i)
     {
-        // glide the modulation depths so switching modes never clicks
-        wowDepth     += 0.0005f * (wowDepthTarget     - wowDepth);
-        flutterDepth += 0.0005f * (flutterDepthTarget - flutterDepth);
-        const float mod = wowDepth * static_cast<float>(std::sin (lfoPhaseSlow))
-                        + flutterDepth * static_cast<float>(std::sin (lfoPhaseFast));
-        lfoPhaseSlow += slowInc;  if (lfoPhaseSlow >= juce::MathConstants<double>::twoPi) lfoPhaseSlow -= juce::MathConstants<double>::twoPi;
-        lfoPhaseFast += fastInc;  if (lfoPhaseFast >= juce::MathConstants<double>::twoPi) lfoPhaseFast -= juce::MathConstants<double>::twoPi;
+        // ---- modulated read positions
+        const float base = smoothDelayTime.getNextValue();
 
-        const float currentDelaySamples = smoothDelayTime.getNextValue() + mod;
+        const float lfoW  = static_cast<float> (std::sin (phaseWider));
+        const float lfoR  = (static_cast<float> (std::sin (phaseRicher1)) + 0.5f * static_cast<float> (std::sin (phaseRicher2))) * (1.0f / 1.5f);
+        phaseWider   += incWider;   if (phaseWider   >= juce::MathConstants<double>::twoPi) phaseWider   -= juce::MathConstants<double>::twoPi;
+        phaseRicher1 += incRicher1; if (phaseRicher1 >= juce::MathConstants<double>::twoPi) phaseRicher1 -= juce::MathConstants<double>::twoPi;
+        phaseRicher2 += incRicher2; if (phaseRicher2 >= juce::MathConstants<double>::twoPi) phaseRicher2 -= juce::MathConstants<double>::twoPi;
 
-        float readPosition = static_cast<float>(writePosition) - currentDelaySamples;
-        while (readPosition < 0.0f)
-            readPosition += static_cast<float>(delayBufLen);
+        const float common = richerDepth * lfoR;
+        const float wide   = widerDepth * lfoW;
+        float dlyL = base + common + wide;
+        float dlyR = base + common - wide;
 
-        const int   readIdx = static_cast<int>(readPosition) % delayBufLen;
-        const float frac    = readPosition - std::floor (readPosition);
+        if (destiny)
+        {
+            if (--destinyCountdown <= 0)
+            {
+                destinyCountdown = destinyPeriod;
+                destinyTarget[0] = rng.nextFloat() * 2.0f - 1.0f;
+                destinyTarget[1] = rng.nextFloat() * 2.0f - 1.0f;
+            }
+            destinyValue[0] += destinySmooth * (destinyTarget[0] - destinyValue[0]);
+            destinyValue[1] += destinySmooth * (destinyTarget[1] - destinyValue[1]);
+            const float depth = 0.0006f * sr + 0.0008f * base;
+            dlyL += depth * destinyValue[0];
+            dlyR += depth * destinyValue[1];
+        }
 
-        // Two delay lines: A (left input) and B (right input), tapped, filtered, saturated
-        const float tapA = shapeLoop (readCubic (delayLeftPtr,  readIdx, frac), 0);
-        const float tapB = shapeLoop (readCubic (delayRightPtr, readIdx, frac), 1);
+        dlyL = juce::jlimit (3.0f, maxDelaySamples, dlyL);
+        dlyR = juce::jlimit (3.0f, maxDelaySamples, dlyR);
 
-        const float inLeft  = leftIn[sample];
-        const float inRight = rightIn[sample];
+        // ---- taps, then Lo-Cut -> Hi-Cut (inside the loop, so every repeat is filtered again)
+        float tapA = readDelayed (delayLeftPtr,  dlyL);
+        float tapB = readDelayed (delayRightPtr, dlyR);
+        if (loCutOn) { tapA = loCut[0].processSample (0, tapA);  tapB = loCut[1].processSample (0, tapB); }
+        if (hiCutOn) { tapA = hiCut[0].processSample (0, tapA);  tapB = hiCut[1].processSample (0, tapB); }
+        tapA = loopLimit (tapA);
+        tapB = loopLimit (tapB);
 
+        const float inLeft  = leftIn[i];
+        const float inRight = rightIn[i];
+
+        // ---- ducker envelope follows the dry input
         const float inLevel = std::max (std::abs (inLeft), std::abs (inRight));
-        if (inLevel > duckEnvelope)
-            duckEnvelope += (inLevel - duckEnvelope) * duckAttack;
-        else
-            duckEnvelope += (inLevel - duckEnvelope) * duckRelease;
-
-        // Ducker: while the input is present (above ~-45 dB, fully engaged by ~-18 dB) the wet
-        // signal is pulled down by DUCKING; at 100% the echoes vanish under the dry signal and
-        // swell back (~250 ms) once it stops. Feedback keeps running, so trails return in the gaps.
+        duckEnvelope += (inLevel - duckEnvelope) * (inLevel > duckEnvelope ? duckAttack : duckRelease);
+        // engaged from about -45 dB, fully by about -18 dB; feedback keeps running so trails return in the gaps
         const float duckAmount = juce::jlimit (0.0f, 1.0f, (duckEnvelope - 0.0056f) / (0.126f - 0.0056f));
-        const float duckGain = 1.0f - duckingVal * duckAmount;
+        duckBuf[static_cast<size_t> (i)] = 1.0f - duckingVal * duckAmount;
 
-        // Feed the lines. Ping Pong sums to mono and starts on one side (set by PAN) so the
-        // bounce is always audible; the other modes use the real stereo input through PAN.
+        // ---- feed the lines (Normal / Inverted / Ping Pong)
         float injA, injB;
         if (fbMode == 2)
         {
-            const float mono = (inLeft + inRight) * 0.5f;
-            // first echo lands on the PAN side (left at centre); output is swapped below
-            injA = pingStartsLeft ? 0.0f : mono;
-            injB = pingStartsLeft ? mono : 0.0f;
+            // Ping Pong sums to mono and starts on the left so the bounce is audible on any source
+            const float mid = (inLeft + inRight) * 0.5f;
+            injA = 0.0f;
+            injB = mid;
         }
         else
         {
-            injA = inLeft  * inGainL;
-            injB = inRight * inGainR;
+            injA = inLeft;
+            injB = inRight;
         }
 
-        float wetL, wetR;
+        float wl, wr;
         if (fbMode == 0)        // Normal: echoes stay on the side of the input
         {
             delayLeftPtr[writePosition]  = injA + tapA * feedbackVal;
             delayRightPtr[writePosition] = injB + tapB * feedbackVal;
-            wetL = tapA;  wetR = tapB;
+            wl = tapA;  wr = tapB;
         }
-        else if (fbMode == 1)   // Inverted: output channels swapped (input right -> echoes left)
+        else if (fbMode == 1)   // Inverted: left/right swapped in the output
         {
             delayLeftPtr[writePosition]  = injA + tapA * feedbackVal;
             delayRightPtr[writePosition] = injB + tapB * feedbackVal;
-            wetL = tapB;  wetR = tapA;
+            wl = tapB;  wr = tapA;
         }
-        else                    // Ping Pong: inverted + cross-feedback, so sides swap on every echo
+        else                    // Ping Pong: inverted + cross-feedback, sides swap on every echo
         {
             delayLeftPtr[writePosition]  = injA + tapB * feedbackVal;
             delayRightPtr[writePosition] = injB + tapA * feedbackVal;
-            wetL = tapB;  wetR = tapA;
+            wl = tapB;  wr = tapA;
         }
 
-        const float outLeft  = (inLeft  * dryVal) + wetL * duckGain * wetVal;
-        const float outRight = (inRight * dryVal) + wetR * duckGain * wetVal;
+        writePosition = (writePosition + 1) % delayBufLen;
+
+        // ---- wet flavour chain: Attack/Sustain -> Cheap -> Tape -> Swirl
+        if (shaperOn)
+        {
+            const float lvl = std::max (std::abs (wl), std::abs (wr));
+            envFast += (lvl - envFast) * (lvl > envFast ? fastA : fastR);
+            envSlow += (lvl - envSlow) * (lvl > envSlow ? slowA : slowR);
+
+            const float diffDb = 20.0f * std::log10 ((envFast + 1.0e-5f) / (envSlow + 1.0e-5f));
+            const float onset  = juce::jlimit (0.0f, 1.0f,  diffDb / 6.0f);   // fast > slow: attack portion
+            const float tail   = juce::jlimit (0.0f, 1.0f, -diffDb / 6.0f);   // fast < slow: decaying tail
+            const float g = juce::Decibels::decibelsToGain (12.0f * (attackAmt * onset + sustainAmt * tail));
+            wl *= g;  wr *= g;
+        }
+
+        if (cheap)   // 11-bit signal path, like vintage digital delays
+        {
+            wl = std::round (wl * 1024.0f) / 1024.0f;
+            wr = std::round (wr * 1024.0f) / 1024.0f;
+        }
+
+        if (tapeAmt > 0.0f)
+        {
+            wl = std::tanh (wl * tapeDrive) / tapeDrive;
+            wr = std::tanh (wr * tapeDrive) / tapeDrive;
+            tapeLp[0] += tapeCoef * (wl - tapeLp[0]);   wl = tapeLp[0];
+            tapeLp[1] += tapeCoef * (wr - tapeLp[1]);   wr = tapeLp[1];
+            wl += (rng.nextFloat() * 2.0f - 1.0f) * hissGain;
+            wr += (rng.nextFloat() * 2.0f - 1.0f) * hissGain;
+        }
+
+        if (swirlAmt > 0.0f)   // 4-stage phaser, L/R LFOs a quarter-cycle apart
+        {
+            float* wetPair[2] = { &wl, &wr };
+            for (int c = 0; c < 2; ++c)
+            {
+                const float lfo = static_cast<float> (std::sin (phaseSwirl + (c == 0 ? 0.0 : juce::MathConstants<double>::halfPi)));
+                const float fc = 250.0f * std::pow (10.0f, 1.1f * (0.5f + 0.5f * lfo));        // 250 Hz .. ~3.1 kHz
+                const float t = std::tan (juce::MathConstants<float>::pi * juce::jmin (fc, sr * 0.45f) / sr);
+                const float a = (t - 1.0f) / (t + 1.0f);
+
+                const float x = *wetPair[c];
+                float y = x + 0.4f * phaserFeedback[c];
+                for (int s = 0; s < 4; ++s)
+                    y = allPass (y, a, apState[c][s]);
+                phaserFeedback[c] = y;
+
+                *wetPair[c] = x * (1.0f - 0.5f * swirlAmt) + y * (0.5f * swirlAmt);
+            }
+            phaseSwirl += incSwirl;
+            if (phaseSwirl >= juce::MathConstants<double>::twoPi) phaseSwirl -= juce::MathConstants<double>::twoPi;
+        }
+
+        wetL[static_cast<size_t> (i)] = wl;
+        wetR[static_cast<size_t> (i)] = wr;
+    }
+
+    // ================================================================ Sauce: algorithmic reverb on the wet signal
+    if (sauceAmt > 0.0f)
+    {
+        std::copy (wetL.begin(), wetL.begin() + numSamples, revL.begin());
+        std::copy (wetR.begin(), wetR.begin() + numSamples, revR.begin());
+        reverb.processStereo (revL.data(), revR.data(), numSamples);
+    }
+
+    // ================================================================ pass 2: Mono -> Pan -> Ducker -> levels -> safety limiter
+    for (int i = 0; i < numSamples; ++i)
+    {
+        const size_t k = static_cast<size_t> (i);
+        float wl = wetL[k];
+        float wr = wetR[k];
+
+        if (sauceAmt > 0.0f)
+        {
+            wl += sauceAmt * revL[k];
+            wr += sauceAmt * revR[k];
+        }
+
+        if (mono)
+            wl = wr = 0.5f * (wl + wr);
+
+        const float wetGain = duckBuf[k] * wetVal;
+        const float outLeft  = safetyLimit (leftIn[i]  * dryVal + wl * wetGain * panGainL);
+        const float outRight = safetyLimit (rightIn[i] * dryVal + wr * wetGain * panGainR);
 
         if (numChannels > 1)
         {
-            leftOut[sample]  = outLeft;
-            rightOut[sample] = outRight;
+            leftOut[i]  = outLeft;
+            rightOut[i] = outRight;
         }
         else
         {
-            leftOut[sample] = 0.5f * (outLeft + outRight);   // mono bus: fold the stereo echoes
+            leftOut[i] = 0.5f * (outLeft + outRight);   // mono bus: fold the stereo echoes
         }
 
         peakL = std::max (peakL, std::abs (outLeft));
         peakR = std::max (peakR, std::abs (outRight));
-
-        writePosition = (writePosition + 1) % delayBufLen;
     }
 
     // Accumulate until the GUI reads (GUI resets via exchange), so short blocks don't hide peaks

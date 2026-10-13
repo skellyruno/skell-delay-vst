@@ -1,97 +1,95 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+namespace
+{
+    constexpr int kWidth  = 720;   // same aspect as the artwork (2135 x 736)
+    constexpr int kHeight = 248;
+
+    const juce::Colour kLime (0xff39ff14);
+
+    juce::String percent (double v) { return juce::String (juce::roundToInt (v * 100.0)); }
+
+    juce::String hertz (double v)
+    {
+        return v >= 1000.0 ? juce::String (v / 1000.0, 1) + "k" : juce::String (juce::roundToInt (v));
+    }
+
+    juce::String milliseconds (double v)
+    {
+        if (v < 10.0)  return juce::String (v, 2) + " ms";
+        if (v < 100.0) return juce::String (v, 1) + " ms";
+        return juce::String (juce::roundToInt (v)) + " ms";
+    }
+
+    void styleLabel (juce::Label& l, const juce::String& text)
+    {
+        l.setText (text, juce::dontSendNotification);
+        l.setFont (juce::FontOptions (10.5f).withStyle ("Bold Italic"));
+        l.setColour (juce::Label::textColourId, kLime);
+        l.setJustificationType (juce::Justification::centred);
+    }
+}
+
 DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     : AudioProcessorEditor (&p), audioProcessor (p)
 {
-    bgImage = juce::ImageFileFormat::loadFrom (
-        BinaryData::skell_bg_png, BinaryData::skell_bg_pngSize);
-
+    bgImage = juce::ImageFileFormat::loadFrom (BinaryData::skell_bg_png, BinaryData::skell_bg_pngSize);
     setLookAndFeel (&skellLookAndFeel);
 
     addAndMakeVisible (leftMeter);
     addAndMakeVisible (rightMeter);
     addAndMakeVisible (delayDisplay);
 
-    auto setupKnob = [this](juce::Slider& s, juce::Label& l, const juce::String& text) {
-        s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-        s.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-        addAndMakeVisible (s);
+    // ---- knobs: (knob, parameter id, label, readout shown while hovering / dragging)
+    setupKnob (feedback, "FEEDBACK", "FEEDBACK", percent);
+    setupKnob (pan, "PAN", "PAN", [] (double v)
+    {
+        const int p = juce::roundToInt (std::abs (v) * 100.0);
+        return p == 0 ? juce::String ("C") : (v < 0 ? "L" : "R") + juce::String (p);
+    });
+    setupKnob (hiCut,   "HICUT",   "TONE",   hertz);
+    setupKnob (tape,    "TAPE",    "TAPE",   percent);
+    setupKnob (ducking, "DUCKING", "DUCKER", percent);
+    setupKnob (dry,     "DRY",     "DRY",    percent);
+    setupKnob (wet,     "WET",     "WET",    percent);
 
-        l.setText (text, juce::dontSendNotification);
-        l.setFont (juce::FontOptions (10.0f).withStyle ("Bold Italic"));
-        l.setColour (juce::Label::textColourId, juce::Colour (0xff39ff14));
-        l.setJustificationType (juce::Justification::centred);
-        addAndMakeVisible (l);
-    };
+    // TIME: its attachment (ms vs note value) is chosen by applyTimeMode()
+    time.slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+    time.slider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    addAndMakeVisible (time.slider);
+    styleLabel (time.label, "TIME");
+    addAndMakeVisible (time.label);
 
-    setupKnob (panSlider, panLabel, "PAN");
-    setupKnob (smoothSlider, smoothLabel, "SMOOTH");
-    setupKnob (timeSlider, timeLabel, "TIME");
-    setupKnob (feedbackSlider, feedbackLabel, "FEEDBACK");
-    setupKnob (drySlider, dryLabel, "DRY");
-    setupKnob (wetSlider, wetLabel, "WET");
-    setupKnob (duckingSlider, duckingLabel, "DUCKING");
-
-    digitalBtn.setRadioGroupId (1001);
-    fbNormalBtn.setRadioGroupId (1002);
-    fbInvertBtn.setRadioGroupId (1002);
-    fbPingBtn.setRadioGroupId (1002);
-    analogBtn.setRadioGroupId (1001);
-    tapeBtn.setRadioGroupId (1001);
-
-    for (auto* b : { &fbNormalBtn, &fbInvertBtn, &fbPingBtn })
-        b->setClickingTogglesState (true);
-    digitalBtn.setClickingTogglesState (true);
-    analogBtn.setClickingTogglesState (true);
-    tapeBtn.setClickingTogglesState (true);
-
-    digitalBtn.setConnectedEdges (juce::Button::ConnectedOnRight);
-    analogBtn.setConnectedEdges  (juce::Button::ConnectedOnLeft | juce::Button::ConnectedOnRight);
-    tapeBtn.setConnectedEdges    (juce::Button::ConnectedOnLeft);
-
-    fbNormalBtn.setConnectedEdges (juce::Button::ConnectedOnRight);
-    fbInvertBtn.setConnectedEdges (juce::Button::ConnectedOnLeft | juce::Button::ConnectedOnRight);
-    fbPingBtn.setConnectedEdges   (juce::Button::ConnectedOnLeft);
-    addAndMakeVisible (fbNormalBtn);
-    addAndMakeVisible (fbInvertBtn);
-    addAndMakeVisible (fbPingBtn);
-    fbNormalBtn.onClick = [this]() { setFbMode (0); };
-    fbInvertBtn.onClick = [this]() { setFbMode (1); };
-    fbPingBtn.onClick   = [this]() { setFbMode (2); };
-
+    // ---- switches
     syncBtn.setClickingTogglesState (true);
     syncBtn.onClick = [this]() { setSync (syncBtn.getToggleState()); };
     addAndMakeVisible (syncBtn);
 
-    addAndMakeVisible (digitalBtn);
-    addAndMakeVisible (analogBtn);
-    addAndMakeVisible (tapeBtn);
+    pingBtn.setClickingTogglesState (true);
+    pingBtn.onClick = [this]() { setChoice ("FB_MODE", pingBtn.getToggleState() ? 2 : 0); };
+    addAndMakeVisible (pingBtn);
 
-    digitalBtn.onClick = [this]() { setMode (0); };
-    analogBtn.onClick  = [this]() { setMode (1); };
-    tapeBtn.onClick    = [this]() { setMode (2); };
-
-    panAttach      = std::make_unique<SliderAttachment>(audioProcessor.apvts, "PAN", panSlider);
-    smoothAttach   = std::make_unique<SliderAttachment>(audioProcessor.apvts, "SMOOTH", smoothSlider);
-    feedbackAttach = std::make_unique<SliderAttachment>(audioProcessor.apvts, "FEEDBACK", feedbackSlider);
-    dryAttach      = std::make_unique<SliderAttachment>(audioProcessor.apvts, "DRY", drySlider);
-    wetAttach      = std::make_unique<SliderAttachment>(audioProcessor.apvts, "WET", wetSlider);
-    duckingAttach  = std::make_unique<SliderAttachment>(audioProcessor.apvts, "DUCKING", duckingSlider);
-
-    panSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt ((v + 1.0) * 50.0)); };
-    smoothSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v)); };
-    feedbackSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v * 100.0)); };
-    wetSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v * 100.0)); };
-    drySlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v * 100.0)); };
-    duckingSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v * 100.0)); };
+    // straight / dotted / triplet - only shown while tempo sync is on
+    juce::TextButton* feel[3] = { &feelStraightBtn, &feelDottedBtn, &feelTripletBtn };
+    for (int i = 0; i < 3; ++i)
+    {
+        auto* b = feel[i];
+        b->setRadioGroupId (1001);
+        b->setClickingTogglesState (true);
+        int edges = 0;
+        if (i > 0) edges |= juce::Button::ConnectedOnLeft;
+        if (i < 2) edges |= juce::Button::ConnectedOnRight;
+        b->setConnectedEdges (edges);
+        b->onClick = [this, i]() { setChoice ("FEEL", i); };
+        addChildComponent (b);
+    }
 
     applyTimeMode (audioProcessor.apvts.getRawParameterValue ("SYNC")->load() > 0.5f);
-    updateModeButtons (static_cast<int>(audioProcessor.apvts.getRawParameterValue ("MODE")->load()));
-    updateFbButtons   (static_cast<int>(audioProcessor.apvts.getRawParameterValue ("FB_MODE")->load()));
+    refreshButtons();
 
     startTimerHz (30);
-    setSize (638, 204);
+    setSize (kWidth, kHeight);
 }
 
 DelayAudioProcessorEditor::~DelayAudioProcessorEditor()
@@ -100,63 +98,74 @@ DelayAudioProcessorEditor::~DelayAudioProcessorEditor()
     setLookAndFeel (nullptr);
 }
 
-void DelayAudioProcessorEditor::setMode (int index)
+void DelayAudioProcessorEditor::setupKnob (Knob& k, const juce::String& paramId, const juce::String& text,
+                                           std::function<juce::String (double)> textFn)
 {
-    if (auto* modeParam = audioProcessor.apvts.getParameter ("MODE"))
-    {
-        modeParam->beginChangeGesture();
-        modeParam->setValueNotifyingHost (modeParam->convertTo0to1 (static_cast<float>(index)));
-        modeParam->endChangeGesture();
-    }
-    updateModeButtons (index);
+    k.slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+    k.slider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    addAndMakeVisible (k.slider);
+
+    styleLabel (k.label, text);
+    addAndMakeVisible (k.label);
+
+    k.attach = std::make_unique<SliderAttachment> (audioProcessor.apvts, paramId, k.slider);
+    k.slider.textFromValueFunction = std::move (textFn);   // after the attachment, which installs its own
 }
 
-// UI only - never writes the parameter, so host automation / preset recall stays in sync
-void DelayAudioProcessorEditor::updateModeButtons (int selectedIndex)
+void DelayAudioProcessorEditor::setChoice (const juce::String& paramId, int index)
 {
-    digitalBtn.setToggleState (selectedIndex == 0, juce::dontSendNotification);
-    analogBtn.setToggleState  (selectedIndex == 1, juce::dontSendNotification);
-    tapeBtn.setToggleState    (selectedIndex == 2, juce::dontSendNotification);
-}
-
-void DelayAudioProcessorEditor::setFbMode (int index)
-{
-    if (auto* param = audioProcessor.apvts.getParameter ("FB_MODE"))
+    if (auto* param = audioProcessor.apvts.getParameter (paramId))
     {
         param->beginChangeGesture();
-        param->setValueNotifyingHost (param->convertTo0to1 (static_cast<float>(index)));
+        param->setValueNotifyingHost (param->convertTo0to1 (static_cast<float> (index)));
         param->endChangeGesture();
     }
-    updateFbButtons (index);
+    refreshButtons();
 }
 
-void DelayAudioProcessorEditor::updateFbButtons (int selectedIndex)
+// UI only - never writes a parameter, so host automation / preset recall stays in sync
+void DelayAudioProcessorEditor::refreshButtons()
 {
-    fbNormalBtn.setToggleState (selectedIndex == 0, juce::dontSendNotification);
-    fbInvertBtn.setToggleState (selectedIndex == 1, juce::dontSendNotification);
-    fbPingBtn.setToggleState   (selectedIndex == 2, juce::dontSendNotification);
+    const int feelIdx = static_cast<int> (audioProcessor.apvts.getRawParameterValue ("FEEL")->load() + 0.5f);
+    feelStraightBtn.setToggleState (feelIdx == 0, juce::dontSendNotification);
+    feelDottedBtn.setToggleState   (feelIdx == 1, juce::dontSendNotification);
+    feelTripletBtn.setToggleState  (feelIdx == 2, juce::dontSendNotification);
+
+    const int fbMode = static_cast<int> (audioProcessor.apvts.getRawParameterValue ("FB_MODE")->load() + 0.5f);
+    pingBtn.setToggleState (fbMode == 2, juce::dontSendNotification);
 }
 
 void DelayAudioProcessorEditor::applyTimeMode (bool sync)
 {
     // Re-create the attachment so the knob takes the other parameter's range and value
-    timeAttach.reset();
-    timeAttach = std::make_unique<SliderAttachment>(audioProcessor.apvts,
-                                                    sync ? "SYNC_DIV" : "DELAY_TIME", timeSlider);
+    time.attach.reset();
+    time.attach = std::make_unique<SliderAttachment> (audioProcessor.apvts,
+                                                      sync ? "SYNC_DIV" : "DELAY_TIME", time.slider);
     timeIsSync = sync;
 
     if (sync)
-        timeSlider.textFromValueFunction = [](double v)
+    {
+        auto* feelParam = audioProcessor.apvts.getRawParameterValue ("FEEL");
+        time.slider.textFromValueFunction = [feelParam] (double v)
         {
-            return juce::String (kSyncDivisions[juce::jlimit (0, kNumSyncDivisions - 1, juce::roundToInt (v))].name);
+            const int idx  = juce::jlimit (0, kNumSyncDivisions - 1, juce::roundToInt (v));
+            const int feel = static_cast<int> (feelParam->load() + 0.5f);
+            return juce::String (kSyncDivisions[idx].name) + (feel == 1 ? "." : feel == 2 ? "T" : "");
         };
+    }
     else
-        timeSlider.textFromValueFunction = [](double v) { return juce::String (juce::roundToInt (v)) + " ms"; };
+    {
+        time.slider.textFromValueFunction = milliseconds;
+    }
 
     syncBtn.setToggleState (sync, juce::dontSendNotification);
     syncBtn.setButtonText (sync ? "SYNC" : "FREE");
-    timeSlider.updateText();
-    timeSlider.repaint();
+    feelStraightBtn.setVisible (sync);
+    feelDottedBtn.setVisible (sync);
+    feelTripletBtn.setVisible (sync);
+
+    time.slider.updateText();
+    time.slider.repaint();
 }
 
 void DelayAudioProcessorEditor::setSync (bool shouldSync)
@@ -172,23 +181,20 @@ void DelayAudioProcessorEditor::setSync (bool shouldSync)
 
 void DelayAudioProcessorEditor::timerCallback()
 {
-    updateModeButtons (static_cast<int>(audioProcessor.apvts.getRawParameterValue ("MODE")->load()));
-
     leftMeter.setLevel (audioProcessor.getLeftLevel());
     rightMeter.setLevel (audioProcessor.getRightLevel());
 
-    // follow host automation of the SYNC switch
+    // follow host automation / preset recall
     const bool syncParam = audioProcessor.apvts.getRawParameterValue ("SYNC")->load() > 0.5f;
     if (syncParam != timeIsSync)
         applyTimeMode (syncParam);
+    refreshButtons();
 
-    const float ms = audioProcessor.getEffectiveDelayMs();   // real time in use, free or synced
-    float fb = static_cast<float>(feedbackSlider.getValue());
-    float duck = static_cast<float>(duckingSlider.getValue());
-
-    const int fbMode = static_cast<int>(audioProcessor.apvts.getRawParameterValue ("FB_MODE")->load());
-    updateFbButtons (fbMode);
-    delayDisplay.setParams (ms, fb, duck, fbMode);
+    const int fbMode = static_cast<int> (audioProcessor.apvts.getRawParameterValue ("FB_MODE")->load() + 0.5f);
+    delayDisplay.setParams (audioProcessor.getEffectiveDelayMs(),
+                            static_cast<float> (feedback.slider.getValue()),
+                            static_cast<float> (ducking.slider.getValue()),
+                            fbMode);
 }
 
 void DelayAudioProcessorEditor::paint (juce::Graphics& g)
@@ -201,46 +207,39 @@ void DelayAudioProcessorEditor::paint (juce::Graphics& g)
         g.drawImage (bgImage, getLocalBounds().toFloat());
 }
 
+void DelayAudioProcessorEditor::placeKnob (Knob& k, int centreX, int topY, int size)
+{
+    k.slider.setBounds (centreX - size / 2, topY, size, size);
+    k.label.setBounds  (centreX - 34, topY + size + 1, 68, 14);
+}
+
 void DelayAudioProcessorEditor::resized()
 {
-    // Meters (original placement)
-    leftMeter.setBounds (10, 42, 8, 128);
-    rightMeter.setBounds (620, 42, 8, 128);
+    // Level meters on the frame edges
+    leftMeter.setBounds  (11, 47, 9, 144);
+    rightMeter.setBounds (700, 47, 9, 144);
 
-    // Left group - knobs share a centre line, labels share one baseline
-    panSlider.setBounds (44, 84, 48, 48);
-    panLabel.setBounds (36, 148, 64, 14);
+    const int small = 44, big = 62;
+    const int smallTop = 113, bigTop = 96;   // labels of both sizes share one baseline
 
-    smoothSlider.setBounds (108, 84, 48, 48);
-    smoothLabel.setBounds (100, 148, 64, 14);
+    // left: PAN  TONE  TAPE  |  TIME
+    placeKnob (pan,   62,  smallTop, small);
+    placeKnob (hiCut, 116, smallTop, small);
+    placeKnob (tape,  170, smallTop, small);
+    placeKnob (time,  240, bigTop,   big);
 
-    timeSlider.setBounds (174, 72, 72, 72);
-    timeLabel.setBounds (178, 148, 64, 14);
+    // centre: readout + switches
+    const int cx = 298, cw = 124;
+    delayDisplay.setBounds (cx, 82, cw, 38);
+    syncBtn.setBounds (cx,            128, 62, 16);
+    pingBtn.setBounds (cx + 64,       128, 60, 16);
+    feelStraightBtn.setBounds (cx,                 148, cw / 3, 16);
+    feelDottedBtn.setBounds   (cx + cw / 3,        148, cw / 3, 16);
+    feelTripletBtn.setBounds  (cx + 2 * (cw / 3),  148, cw - 2 * (cw / 3), 16);
 
-    // Centre: tap display, mode buttons, ping-pong
-    delayDisplay.setBounds (262, 52, 114, 38);
-
-    digitalBtn.setBounds (262, 96, 38, 15);
-    analogBtn.setBounds  (300, 96, 38, 15);
-    tapeBtn.setBounds    (338, 96, 38, 15);
-
-    fbNormalBtn.setBounds (262, 116, 38, 15);
-    fbInvertBtn.setBounds (300, 116, 38, 15);
-    fbPingBtn.setBounds   (338, 116, 38, 15);
-
-    syncBtn.setBounds (262, 136, 114, 15);
-
-    // Right group
-    feedbackSlider.setBounds (390, 72, 72, 72);
-    feedbackLabel.setBounds (394, 148, 64, 14);
-
-    drySlider.setBounds (480, 62, 40, 40);
-    dryLabel.setBounds (468, 102, 64, 14);
-
-    wetSlider.setBounds (536, 62, 40, 40);
-    wetLabel.setBounds (524, 102, 64, 14);
-
-    // Kept clear of the bottom ornament
-    duckingSlider.setBounds (508, 116, 40, 40);
-    duckingLabel.setBounds (493, 156, 70, 14);
+    // right: FEEDBACK  |  DUCKER  DRY  WET
+    placeKnob (feedback, 480, bigTop,   big);
+    placeKnob (ducking,  550, smallTop, small);
+    placeKnob (dry,      606, smallTop, small);
+    placeKnob (wet,      660, smallTop, small);
 }

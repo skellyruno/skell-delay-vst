@@ -15,13 +15,26 @@ public:
     void resized() override;
 
 private:
+    using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+
+    struct Knob
+    {
+        juce::Slider slider;
+        juce::Label label;
+        std::unique_ptr<SliderAttachment> attach;
+    };
+
     void timerCallback() override;
-    void setMode (int index);
-    void updateModeButtons (int selectedIndex);
-    void setFbMode (int index);
+
+    void setupKnob (Knob& k, const juce::String& paramId, const juce::String& text,
+                    std::function<juce::String (double)> textFn);
+    void placeKnob (Knob& k, int centreX, int topY, int size);
+
+    void setChoice (const juce::String& paramId, int index);
+    void refreshButtons();
+
     void setSync (bool shouldSync);
     void applyTimeMode (bool sync);   // re-points the TIME knob at ms (free) or note value (sync)
-    void updateFbButtons (int selectedIndex);
 
     DelayAudioProcessor& audioProcessor;
     SkellLookAndFeel skellLookAndFeel;
@@ -30,22 +43,17 @@ private:
     SkellMeter leftMeter, rightMeter;
     SkellDisplay delayDisplay;
 
-    juce::Slider panSlider, smoothSlider;
-    juce::Slider timeSlider, feedbackSlider;
-    juce::Slider drySlider, wetSlider, duckingSlider;
+    // Main controls. Everything else (lo-cut, attack/sustain, swirl, sauce, wider, richer,
+    // mono, destiny, cheap, smooth ...) is still a working, automatable parameter at a neutral default.
+    Knob time, feedback;
+    Knob pan, hiCut, tape;
+    Knob ducking, dry, wet;
 
-    juce::TextButton digitalBtn { "DIGITAL" }, analogBtn { "ANALOG" }, tapeBtn { "TAPE" };
     juce::TextButton syncBtn { "FREE" };
+    juce::TextButton pingBtn { "PING PONG" };
+    juce::TextButton feelStraightBtn { "STR" }, feelDottedBtn { "DOT" }, feelTripletBtn { "TRI" };
+
     bool timeIsSync = false;
-    juce::TextButton fbNormalBtn { "NORM" }, fbInvertBtn { "INVERT" }, fbPingBtn { "PING" };
-
-    juce::Label panLabel, smoothLabel, timeLabel, feedbackLabel;
-    juce::Label dryLabel, wetLabel, duckingLabel;
-
-    using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
-
-    std::unique_ptr<SliderAttachment> panAttach, smoothAttach, timeAttach, feedbackAttach;
-    std::unique_ptr<SliderAttachment> dryAttach, wetAttach, duckingAttach;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DelayAudioProcessorEditor)
 };

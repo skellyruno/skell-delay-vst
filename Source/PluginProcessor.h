@@ -2,18 +2,17 @@
 
 #include <JuceHeader.h>
 
-// Tempo-synced note values, ordered by length (beats = quarter notes)
+// Tempo-synced note values (beats = quarter notes). The FEEL parameter then makes them
+// straight, dotted or triplet - same scheme as Comeback Kid.
 struct SyncDivision { const char* name; float beats; };
 inline constexpr SyncDivision kSyncDivisions[] = {
-    { "1/64",  0.0625f }, { "1/32T", 1.0f / 12.0f }, { "1/32",  0.125f },
-    { "1/16T", 1.0f / 6.0f }, { "1/16", 0.25f },     { "1/8T",  1.0f / 3.0f },
-    { "1/16.", 0.375f },  { "1/8",   0.5f },         { "1/4T",  2.0f / 3.0f },
-    { "1/8.",  0.75f },   { "1/4",   1.0f },         { "1/2T",  4.0f / 3.0f },
-    { "1/4.",  1.5f },    { "1/2",   2.0f },         { "1/2.",  3.0f },
-    { "1/1",   4.0f }
+    { "1/64", 0.0625f }, { "1/32", 0.125f }, { "1/16", 0.25f }, { "1/8", 0.5f },
+    { "1/4",  1.0f },    { "1/2",  2.0f },   { "1/1",  4.0f }
 };
 inline constexpr int kNumSyncDivisions = static_cast<int> (sizeof (kSyncDivisions) / sizeof (kSyncDivisions[0]));
-inline constexpr int kDefaultSyncDivision = 7;   // 1/8
+inline constexpr int kDefaultSyncDivision = 3;   // 1/8
+
+inline constexpr float kFeelMultiplier[] = { 1.0f, 1.5f, 2.0f / 3.0f };   // straight, dotted, triplet
 
 class DelayAudioProcessor  : public juce::AudioProcessor
 {
@@ -59,25 +58,40 @@ public:
 
 private:
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
-    float computeDelayMs() const;   // free ms, or note value at the host tempo
+    float computeDelayMs() const;   // free ms, or note value x feel at the host tempo
+    float param (const char* id) const { return apvts.getRawParameterValue (id)->load(); }
 
+    // ---- delay engine ----
     juce::AudioBuffer<float> delayBuffer;
     int writePosition = 0;
     double sampleRate = 44100.0;
+    double hostBpm = 120.0;
 
     juce::LinearSmoothedValue<float> smoothDelayTime;
-    float duckEnvelope = 0.0f;
     float lastSmoothParam = 50.0f;
 
-    // Feedback-loop tone shaping (per channel) and tape modulation state
-    float lpState[2] { 0.0f, 0.0f };
-    float hpState[2] { 0.0f, 0.0f };
-    float lp2State[2] { 0.0f, 0.0f };   // second low-pass pole (Analog/BBD)
-    double hostBpm = 120.0;
-    std::atomic<float> effectiveDelayMs { 250.0f };
-    double lfoPhaseSlow = 0.0, lfoPhaseFast = 0.0;
-    float wowDepth = 0.0f, flutterDepth = 0.0f;   // smoothed modulation depths (samples)
+    // Lo-cut / hi-cut inside the feedback loop (one per channel)
+    juce::dsp::StateVariableTPTFilter<float> loCut[2], hiCut[2];
 
+    // Wider / Richer / Destiny modulation of the delay time
+    double phaseWider = 0.0, phaseRicher1 = 0.0, phaseRicher2 = 0.0;
+    juce::Random rng;
+    float destinyTarget[2] { 0.0f, 0.0f };
+    float destinyValue[2]  { 0.0f, 0.0f };
+    int destinyCountdown = 0;
+
+    // ---- wet-signal flavour chain (outside the loop): attack/sustain > cheap > tape > swirl > sauce > ducker
+    float envFast = 0.0f, envSlow = 0.0f;           // transient shaper detectors
+    float tapeLp[2] { 0.0f, 0.0f };                 // tape high-frequency roll-off
+    double phaseSwirl = 0.0;                        // phaser LFO
+    float apState[2][4] {};                         // 4 all-pass stages per channel
+    float phaserFeedback[2] { 0.0f, 0.0f };
+    juce::Reverb reverb;                            // "sauce"
+    std::vector<float> wetL, wetR, revL, revR, duckBuf;
+
+    float duckEnvelope = 0.0f;
+
+    std::atomic<float> effectiveDelayMs { 250.0f };
     std::atomic<float> leftLevel { 0.0f };
     std::atomic<float> rightLevel { 0.0f };
 
