@@ -22,6 +22,7 @@ public:
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
+    void reset() override;   // host stop/start: clears echoes, filters, reverb
 
 #ifndef JucePlugin_PreferredChannelConfigurations
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
@@ -57,9 +58,19 @@ public:
     juce::AudioProcessorValueTreeState apvts;
 
 private:
+    using Smoother = juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear>;
+
+    // Hosts may hand over any block size; it is processed in chunks of at most this many samples
+    // so that no memory is ever allocated on the audio thread.
+    static constexpr int kMaxChunk = 4096;
+
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     float computeDelayMs() const;   // free ms, or note value x feel at the host tempo
     float param (const char* id) const { return apvts.getRawParameterValue (id)->load(); }
+
+    void clearState();
+    void snapSmoothers();            // jump every smoother to its parameter (no ramp)
+    void processChunk (juce::AudioBuffer<float>& buffer);
 
     // ---- delay engine ----
     juce::AudioBuffer<float> delayBuffer;
@@ -67,10 +78,21 @@ private:
     double sampleRate = 44100.0;
     double hostBpm = 120.0;
 
+    // Small time changes glide (SMOOTH sets how long). Big jumps - a new note value, a preset,
+    // a tempo leap - cross-fade between the old and the new position instead, so there is no
+    // pitch-sweep "siren" and no click.
     juce::LinearSmoothedValue<float> smoothDelayTime;
     float lastSmoothParam = 50.0f;
+    float lastTargetSamples = -1.0f;
+    float fadeOldDelay = 0.0f;
+    int fadeLeft = 0, fadeTotal = 1;
 
-    // Lo-cut / hi-cut inside the feedback loop (one per channel)
+    // Per-parameter smoothing (no zipper noise / clicks when a knob or automation moves)
+    Smoother smDry, smWet, smFeedback, smDucking, smPan, smTape, smSwirl, smSauce,
+             smWider, smRicher, smAttack, smSustain, smPing, smSwap, smLoHz, smHiHz;
+
+    // DC blocker (always on) + Lo-cut / Hi-cut inside the feedback loop, one per channel
+    float dcX[2] { 0.0f, 0.0f }, dcY[2] { 0.0f, 0.0f };
     juce::dsp::StateVariableTPTFilter<float> loCut[2], hiCut[2];
 
     // Wider / Richer / Destiny modulation of the delay time
