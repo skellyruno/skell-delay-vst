@@ -10,6 +10,13 @@ public:
         setColour (juce::Slider::thumbColourId, juce::Colour (0xff39ff14));
         setColour (juce::Label::textColourId, juce::Colour (0xff39ff14));
         setColour (juce::ToggleButton::tickColourId, juce::Colour (0xff39ff14));
+
+        // preset menu
+        setColour (juce::PopupMenu::backgroundColourId, juce::Colour (0xff081204));
+        setColour (juce::PopupMenu::textColourId, juce::Colour (0xff39ff14));
+        setColour (juce::PopupMenu::highlightedBackgroundColourId, juce::Colour (0xff39ff14));
+        setColour (juce::PopupMenu::highlightedTextColourId, juce::Colour (0xff040a02));
+        setColour (juce::PopupMenu::headerTextColourId, juce::Colour (0xff2ccb0f));
     }
 
     void drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height,

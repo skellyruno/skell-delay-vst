@@ -33,6 +33,9 @@ private:
     void setChoice (const juce::String& paramId, int index);
     void refreshButtons();
 
+    void showPresetMenu();
+    void stepPreset (int delta);
+
     void setSync (bool shouldSync);
     void applyTimeMode (bool sync);   // re-points the TIME knob at ms (free) or note value (sync)
 
@@ -48,10 +51,16 @@ private:
     Knob time, feedback;
     Knob pan, hiCut, tape;
     Knob ducking, dry, wet;
+    Knob shimmer;
 
     juce::TextButton syncBtn { "FREE" };
     juce::TextButton pingBtn { "PING PONG" };
     juce::TextButton feelStraightBtn { "STR" }, feelDottedBtn { "DOT" }, feelTripletBtn { "TRI" };
+
+    juce::TextButton revBtn { "REVERSE" };
+    juce::TextButton shimPitchBtn { "+12" };
+    juce::TextButton abA { "A" }, abB { "B" };
+    juce::TextButton presetPrev { "<" }, presetBtn { "Init" }, presetNext { ">" };
 
     bool timeIsSync = false;
 

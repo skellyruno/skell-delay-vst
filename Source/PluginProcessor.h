@@ -14,6 +14,11 @@ inline constexpr int kDefaultSyncDivision = 3;   // 1/8
 
 inline constexpr float kFeelMultiplier[] = { 1.0f, 1.5f, 2.0f / 3.0f };   // straight, dotted, triplet
 
+// Shimmer: pitch interval applied to the repeats as they are fed back
+inline constexpr const char* kShimNames[] = { "+12", "+7", "-12", "-7" };
+inline constexpr float kShimRatio[] = { 2.0f, 1.49831f, 0.5f, 0.66742f };
+inline constexpr int kNumShimIntervals = 4;
+
 class DelayAudioProcessor  : public juce::AudioProcessor
 {
 public:
@@ -49,6 +54,13 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
+    // Factory presets are exposed as host programs. The current one is stored in the plugin state.
+    void applyPreset (int index);
+
+    // A/B compare: two full parameter snapshots; selecting a slot stores the current one first
+    void selectABSlot (int slot);
+    int getABSlot() const { return abActive; }
+
     float getLeftLevel();   // returns peak since last call
     float getRightLevel();
 
@@ -70,7 +82,7 @@ private:
 
     void clearState();
     void snapSmoothers();            // jump every smoother to its parameter (no ramp)
-    void processChunk (juce::AudioBuffer<float>& buffer);
+    void processChunk (juce::AudioBuffer<float>& buffer, const float* scL, const float* scR);   // sc* = optional ducker sidechain
 
     // ---- delay engine ----
     juce::AudioBuffer<float> delayBuffer;
@@ -89,7 +101,26 @@ private:
 
     // Per-parameter smoothing (no zipper noise / clicks when a knob or automation moves)
     Smoother smDry, smWet, smFeedback, smDucking, smPan, smTape, smSwirl, smSauce,
-             smWider, smRicher, smAttack, smSustain, smPing, smSwap, smLoHz, smHiHz;
+             smWider, smRicher, smAttack, smSustain, smPing, smSwap, smLoHz, smHiHz, smRev, smShim;
+
+    // Reverse: two read heads sweep backwards through the last N ms, hann-windowed and offset by half a segment
+    double revPhase[2] { 0.0, 0.5 };
+    float revLen[2] { 0.0f, 0.0f };
+
+    // Tape in the loop: wow / flutter / drift on the read position, soft saturation and a per-repeat HF roll-off
+    double phaseWow[2] { 0.0, 0.9 }, phaseFlut[2] { 0.0, 1.7 };
+    float driftValue[2] { 0.0f, 0.0f };
+    float loopLp[2] { 0.0f, 0.0f };
+
+    // Shimmer: delay-line pitch shifter (two crossfaded taps) on the fed-back signal
+    static constexpr int kShimRing = 16384;
+    std::vector<float> shimRing[2];
+    int shimWrite = 0;
+    float shimPhase = 0.0f;
+    float shimWin = 1500.0f;
+
+    juce::ValueTree abState[2];
+    int abActive = 0;
 
     // DC blocker (always on) + Lo-cut / Hi-cut inside the feedback loop, one per channel
     float dcX[2] { 0.0f, 0.0f }, dcY[2] { 0.0f, 0.0f };

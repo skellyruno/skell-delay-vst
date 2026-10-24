@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "Presets.h"
 
 namespace
 {
@@ -25,6 +26,15 @@ namespace
         return y;
     }
 
+    // 4-point cubic Hermite interpolation
+    inline float hermite (float y0, float y1, float y2, float y3, float f)
+    {
+        const float c1 = 0.5f * (y2 - y0);
+        const float c2 = y0 - 2.5f * y1 + 2.0f * y2 - 0.5f * y3;
+        const float c3 = 0.5f * (y3 - y0) + 1.5f * (y1 - y2);
+        return ((c3 * f + c2) * f + c1) * f + y1;
+    }
+
     constexpr float kParamRampSeconds = 0.02f;
 }
 
@@ -34,6 +44,7 @@ DelayAudioProcessor::DelayAudioProcessor()
                      #if ! JucePlugin_IsMidiEffect
                       #if ! JucePlugin_IsSynth
                        .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
+                       .withInput  ("Sidechain", juce::AudioChannelSet::stereo(), false)   // optional: the ducker listens to this
                       #endif
                        .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
                      #endif
@@ -80,6 +91,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout DelayAudioProcessor::createP
     addFloat ("FEEDBACK", "Feedback", Range (0.0f, 1.0f, 0.01f), 0.5f);
     addChoice ("FB_MODE", "Feedback Mode", { "Normal", "Inverted", "Ping Pong" }, 0);
     addBool ("DESTINY", "Destiny", false);
+    addBool ("REVERSE", "Reverse", false);
+    addFloat ("SHIMMER", "Shimmer", Range (0.0f, 1.0f, 0.01f), 0.0f);
+    addChoice ("SHIM_PITCH", "Shimmer Pitch", { "+12", "+7", "-12", "-7" }, 0);
     addFloat ("SMOOTH", "Smoothing", Range (0.0f, 100.0f, 1.0f), 50.0f);
 
     // ---- Shaper ----
@@ -104,6 +118,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout DelayAudioProcessor::createP
 
     // ---- Output ----
     addFloat ("DUCKING", "Ducker", Range (0.0f, 1.0f, 0.01f), 0.0f);
+    Range relRange (20.0f, 1000.0f, 1.0f);  relRange.setSkewForCentre (250.0f);
+    addFloat ("DUCK_REL", "Ducker Release", relRange, 250.0f);
     addFloat ("DRY", "Direct Level",  Range (0.0f, 1.0f, 0.01f), 1.0f);
     addFloat ("WET", "Delayed Level", Range (0.0f, 1.0f, 0.01f), 1.0f);
 
@@ -116,11 +132,52 @@ bool DelayAudioProcessor::producesMidi() const { return false; }
 bool DelayAudioProcessor::isMidiEffect() const { return false; }
 double DelayAudioProcessor::getTailLengthSeconds() const { return 8.0; }
 
-int DelayAudioProcessor::getNumPrograms() { return 1; }
-int DelayAudioProcessor::getCurrentProgram() { return 0; }
-void DelayAudioProcessor::setCurrentProgram (int) {}
-const juce::String DelayAudioProcessor::getProgramName (int) { return {}; }
+int DelayAudioProcessor::getNumPrograms() { return static_cast<int> (getFactoryPresets().size()); }
+
+int DelayAudioProcessor::getCurrentProgram()
+{
+    return juce::jlimit (0, getNumPrograms() - 1, static_cast<int> (apvts.state.getProperty ("preset", 0)));
+}
+
+void DelayAudioProcessor::setCurrentProgram (int index) { applyPreset (index); }
+
+const juce::String DelayAudioProcessor::getProgramName (int index)
+{
+    const auto& presets = getFactoryPresets();
+    return juce::isPositiveAndBelow (index, static_cast<int> (presets.size())) ? presets[static_cast<size_t> (index)].name : "";
+}
+
 void DelayAudioProcessor::changeProgramName (int, const juce::String&) {}
+
+void DelayAudioProcessor::applyPreset (int index)
+{
+    const auto& presets = getFactoryPresets();
+    if (! juce::isPositiveAndBelow (index, static_cast<int> (presets.size())))
+        return;
+
+    // start from the defaults so a preset never inherits leftovers from the previous one
+    for (auto* p : getParameters())
+        if (auto* r = dynamic_cast<juce::RangedAudioParameter*> (p))
+            r->setValueNotifyingHost (r->getDefaultValue());
+
+    for (const auto& v : presets[static_cast<size_t> (index)].values)
+        if (auto* r = apvts.getParameter (v.id))
+            r->setValueNotifyingHost (r->convertTo0to1 (v.value));
+
+    apvts.state.setProperty ("preset", index, nullptr);
+}
+
+void DelayAudioProcessor::selectABSlot (int slot)
+{
+    slot = juce::jlimit (0, 1, slot);
+    if (slot == abActive)
+        return;
+
+    abState[abActive] = apvts.copyState();
+    abActive = slot;
+    if (abState[slot].isValid())
+        apvts.replaceState (abState[slot].createCopy());
+}
 
 float DelayAudioProcessor::computeDelayMs() const
 {
@@ -164,6 +221,8 @@ void DelayAudioProcessor::snapSmoothers()
     smSwap.setCurrentAndTargetValue (fbMode >= 1 ? 1.0f : 0.0f);
     smLoHz.setCurrentAndTargetValue (juce::jlimit (20.0f, 2000.0f, param ("LOCUT")));
     smHiHz.setCurrentAndTargetValue (juce::jlimit (1000.0f, sr * 0.45f, param ("HICUT")));
+    smRev.setCurrentAndTargetValue (param ("REVERSE") > 0.5f ? 1.0f : 0.0f);
+    smShim.setCurrentAndTargetValue (param ("SHIMMER"));
 }
 
 void DelayAudioProcessor::clearState()
@@ -181,6 +240,19 @@ void DelayAudioProcessor::clearState()
         phaserFeedback[c] = 0.0f;
         for (auto& z : apState[c]) z = 0.0f;
     }
+
+    for (int c = 0; c < 2; ++c)
+    {
+        revPhase[c] = c == 0 ? 0.0 : 0.5;
+        revLen[c] = 0.0f;
+        phaseWow[c] = c == 0 ? 0.0 : 0.9;
+        phaseFlut[c] = c == 0 ? 0.0 : 1.7;
+        driftValue[c] = 0.0f;
+        loopLp[c] = 0.0f;
+        std::fill (shimRing[c].begin(), shimRing[c].end(), 0.0f);
+    }
+    shimWrite = 0;
+    shimPhase = 0.0f;
 
     phaseWider = phaseRicher1 = phaseRicher2 = phaseSwirl = 0.0;
     destinyCountdown = 0;
@@ -229,8 +301,12 @@ void DelayAudioProcessor::prepareToPlay (double sr, int samplesPerBlock)
     revR.assign (static_cast<size_t> (kMaxChunk), 0.0f);
     duckBuf.assign (static_cast<size_t> (kMaxChunk), 1.0f);
 
+    for (auto& r : shimRing)
+        r.assign (static_cast<size_t> (kShimRing), 0.0f);
+    shimWin = static_cast<float> (juce::jmin (0.035 * sampleRate, 12000.0));
+
     for (auto* s : { &smDry, &smWet, &smFeedback, &smDucking, &smPan, &smTape, &smSwirl, &smSauce,
-                     &smWider, &smRicher, &smAttack, &smSustain, &smPing, &smSwap, &smLoHz, &smHiHz })
+                     &smWider, &smRicher, &smAttack, &smSustain, &smPing, &smSwap, &smLoHz, &smHiHz, &smRev, &smShim })
         s->reset (sampleRate, kParamRampSeconds);
 
     fadeTotal = juce::jmax (1, static_cast<int> (0.04 * sampleRate));   // 40 ms cross-fade for time jumps
@@ -252,6 +328,13 @@ bool DelayAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) co
      && layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
         return false;
 
+    if (layouts.inputBuses.size() > 1)   // sidechain: off, mono or stereo
+    {
+        const auto sc = layouts.inputBuses.getReference (1);
+        if (! sc.isDisabled() && sc != juce::AudioChannelSet::mono() && sc != juce::AudioChannelSet::stereo())
+            return false;
+    }
+
     if (layouts.getMainInputChannelSet() == juce::AudioChannelSet::mono()
      && layouts.getMainOutputChannelSet() == juce::AudioChannelSet::stereo())
         return true;
@@ -266,20 +349,31 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     juce::ScopedNoDenormals noDenormals;
 
     const int total = buffer.getNumSamples();
-    const int numChannels = buffer.getNumChannels();
+    const int numChannels = juce::jmin (buffer.getNumChannels(), juce::jmax (1, getMainBusNumOutputChannels()));
 
     if (numChannels == 0 || total == 0 || delayBuffer.getNumSamples() == 0)
         return;
+
+    // optional sidechain (second input bus): the ducker follows it instead of the main input
+    const float* scL = nullptr;
+    const float* scR = nullptr;
+    if (auto* scBus = getBus (true, 1))
+        if (scBus->isEnabled() && scBus->getNumberOfChannels() > 0)
+        {
+            auto sc = getBusBuffer (buffer, true, 1);
+            scL = sc.getReadPointer (0);
+            scR = sc.getNumChannels() > 1 ? sc.getReadPointer (1) : scL;
+        }
 
     // Chunking keeps all scratch memory pre-allocated, whatever block size the host uses
     for (int pos = 0; pos < total; pos += kMaxChunk)
     {
         juce::AudioBuffer<float> chunk (buffer.getArrayOfWritePointers(), numChannels, pos, juce::jmin (kMaxChunk, total - pos));
-        processChunk (chunk);
+        processChunk (chunk, scL != nullptr ? scL + pos : nullptr, scR != nullptr ? scR + pos : nullptr);
     }
 }
 
-void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer)
+void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const float* scL, const float* scR)
 {
     const int numSamples  = buffer.getNumSamples();
     const int numChannels = buffer.getNumChannels();
@@ -308,6 +402,9 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer)
     smSwap.setTargetValue     (fbMode >= 1 ? 1.0f : 0.0f);
     smLoHz.setTargetValue     (juce::jlimit (20.0f, 2000.0f, param ("LOCUT")));
     smHiHz.setTargetValue     (juce::jlimit (1000.0f, sr * 0.45f, param ("HICUT")));
+    smRev.setTargetValue      (param ("REVERSE") > 0.5f ? 1.0f : 0.0f);
+    smShim.setTargetValue     (param ("SHIMMER"));
+    const float shimRatio = kShimRatio[juce::jlimit (0, kNumShimIntervals - 1, static_cast<int> (param ("SHIM_PITCH") + 0.5f))];
 
     // SMOOTH (0-100) = glide time in ms for small time changes. Only re-time the ramp when the
     // knob moves, preserving the current value so there is no jump/click.
@@ -361,7 +458,7 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer)
 
     // Ducker: attenuates the wet signal while the dry input is playing
     const float duckAttack  = 1.0f - std::exp (-1.0f / (0.004f * sr));
-    const float duckRelease = 1.0f - std::exp (-1.0f / (0.250f * sr));
+    const float duckRelease = 1.0f - std::exp (-1.0f / (juce::jlimit (20.0f, 1000.0f, param ("DUCK_REL")) * 0.001f * sr));
 
     // Transient shaper detectors
     const float fastA = 1.0f - std::exp (-1.0f / (0.0005f * sr));
@@ -372,8 +469,14 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer)
     // 5 Hz DC blocker in the loop: stops DC (or sub-sonic drift) building up at high feedback
     const float dcR = 1.0f - juce::MathConstants<float>::twoPi * 5.0f / sr;
 
+    // tape wow / flutter / drift (in the loop)
+    const double incWow[2]  = { juce::MathConstants<double>::twoPi * 0.55 / sampleRate, juce::MathConstants<double>::twoPi * 0.63 / sampleRate };
+    const double incFlut[2] = { juce::MathConstants<double>::twoPi * 6.3  / sampleRate, juce::MathConstants<double>::twoPi * 7.1  / sampleRate };
+    const float driftCoef  = std::exp (-juce::MathConstants<float>::twoPi * 1.0f / sr);
+    const float driftNoise = std::sqrt (1.0f - driftCoef * driftCoef) * 1.732f * 0.35f;
+
     auto* leftIn  = buffer.getReadPointer (0);
-    auto* rightIn = (numChannels > 1 && getTotalNumInputChannels() > 1) ? buffer.getReadPointer (1) : leftIn;
+    auto* rightIn = (numChannels > 1 && getMainBusNumInputChannels() > 1) ? buffer.getReadPointer (1) : leftIn;
     auto* leftOut  = buffer.getWritePointer (0);
     auto* rightOut = numChannels > 1 ? buffer.getWritePointer (1) : leftOut;
 
@@ -404,8 +507,18 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer)
         return readCubic (buf, i1, frac);
     };
 
+    auto readShim = [this] (int c, float d)
+    {
+        const float pos = static_cast<float> (shimWrite) - d;
+        const int i1 = static_cast<int> (std::floor (pos));
+        const float f = pos - static_cast<float> (i1);
+        const float* b = shimRing[c].data();
+        constexpr int m = kShimRing - 1;
+        return hermite (b[(i1 - 1) & m], b[i1 & m], b[(i1 + 1) & m], b[(i1 + 2) & m], f);
+    };
+
     // state that is refreshed every few samples from the smoothed values
-    float tapeDrive = 1.0f, tapeCoef = 1.0f, hissGain = 0.0f;
+    float tapeDrive = 1.0f, tapeCoef = 1.0f, hissGain = 0.0f, loopDrive = 1.0f, loopCoef = 1.0f;
     bool loCutOn = false, hiCutOn = false;
     float peakL = 0.0f, peakR = 0.0f;
 
@@ -425,6 +538,8 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer)
         const float swap        = smSwap.getNextValue();   // 0 = left/right as is, 1 = swapped (inverted / ping-pong)
         const float loHz        = smLoHz.getNextValue();
         const float hiHz        = smHiHz.getNextValue();
+        const float rev         = smRev.getNextValue();
+        const float shimAmt     = smShim.getNextValue();
 
         if ((i & 31) == 0)   // filter coefficients: refresh from the smoothed cutoffs every 32 samples
         {
@@ -445,6 +560,10 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer)
             const float tapeHz = 18000.0f * std::pow (0.3f, tapeAmt);
             tapeCoef = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * juce::jmin (tapeHz, sr * 0.45f) / sr);
             hissGain = 0.002f * tapeAmt * tapeAmt;
+
+            loopDrive = 1.0f + tapeAmt;                                  // in-loop saturation: every repeat is squashed a bit more
+            const float loopHz = 16000.0f * std::pow (0.4f, tapeAmt);   // ... and a bit darker
+            loopCoef = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * juce::jmin (loopHz, sr * 0.45f) / sr);
         }
 
         // ---- modulated read positions
@@ -458,6 +577,20 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer)
 
         float modL = richerDepth * lfoR + widerDepth * lfoW;
         float modR = richerDepth * lfoR - widerDepth * lfoW;
+
+        if (tapeAmt > 0.0f)   // tape transport: slow wow, fast flutter, random drift - independent per channel
+        {
+            const float wowD = tapeAmt * 0.0008f * sr, flutD = tapeAmt * 0.00003f * sr, driftD = tapeAmt * 0.0004f * sr;
+            for (int c = 0; c < 2; ++c)
+            {
+                driftValue[c] = driftValue[c] * driftCoef + (rng.nextFloat() * 2.0f - 1.0f) * driftNoise;
+                const float m = wowD * static_cast<float> (std::sin (phaseWow[c])) + flutD * static_cast<float> (std::sin (phaseFlut[c]))
+                                + driftD * driftValue[c];
+                (c == 0 ? modL : modR) += m;
+                phaseWow[c]  += incWow[c];   if (phaseWow[c]  >= juce::MathConstants<double>::twoPi) phaseWow[c]  -= juce::MathConstants<double>::twoPi;
+                phaseFlut[c] += incFlut[c];  if (phaseFlut[c] >= juce::MathConstants<double>::twoPi) phaseFlut[c] -= juce::MathConstants<double>::twoPi;
+            }
+        }
 
         if (destiny)
         {
@@ -492,19 +625,87 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer)
             --fadeLeft;
         }
 
+        if (rev > 0.0f)   // reverse: two heads read backwards through the last N samples, hann-windowed
+        {
+            const float maxLen = 0.5f * maxDelaySamples - 8.0f;
+            float revA = 0.0f, revB = 0.0f;
+            for (int h = 0; h < 2; ++h)
+            {
+                if (revLen[h] <= 0.0f)
+                    revLen[h] = juce::jlimit (64.0f, maxLen, base);
+
+                const float p = static_cast<float> (revPhase[h]);
+                const float s = std::sin (juce::MathConstants<float>::pi * p);
+                const float w = s * s;                       // w(p) + w(p + 0.5) = 1
+                const float d = 2.0f * revLen[h] * p;        // delay grows 2 samples per sample -> read position runs backwards
+                revA += w * readDelayed (delayLeftPtr,  juce::jlimit (3.0f, maxDelaySamples, d + modL));
+                revB += w * readDelayed (delayRightPtr, juce::jlimit (3.0f, maxDelaySamples, d + modR));
+
+                revPhase[h] += 1.0 / static_cast<double> (revLen[h]);
+                if (revPhase[h] >= 1.0)
+                {
+                    revPhase[h] -= 1.0;
+                    revLen[h] = juce::jlimit (64.0f, maxLen, base);   // length is only re-latched where the window is zero
+                }
+            }
+            rawA = rawA * (1.0f - rev) + revA * rev;
+            rawB = rawB * (1.0f - rev) + revB * rev;
+        }
+        else
+        {
+            revPhase[0] = 0.0;  revPhase[1] = 0.5;
+            revLen[0] = revLen[1] = 0.0f;
+        }
+
         // ---- DC blocker -> Lo-Cut -> Hi-Cut (inside the loop, so every repeat is filtered again)
         float tapA = rawA - dcX[0] + dcR * dcY[0];   dcX[0] = rawA;   dcY[0] = tapA;
         float tapB = rawB - dcX[1] + dcR * dcY[1];   dcX[1] = rawB;   dcY[1] = tapB;
         if (loCutOn) { tapA = loCut[0].processSample (0, tapA);  tapB = loCut[1].processSample (0, tapB); }
         if (hiCutOn) { tapA = hiCut[0].processSample (0, tapA);  tapB = hiCut[1].processSample (0, tapB); }
+
+        if (tapeAmt > 0.0f)   // tape in the loop: soft saturation + HF loss on every pass
+        {
+            tapA = std::tanh (tapA * loopDrive) / loopDrive;
+            tapB = std::tanh (tapB * loopDrive) / loopDrive;
+            loopLp[0] += loopCoef * (tapA - loopLp[0]);   tapA = loopLp[0];
+            loopLp[1] += loopCoef * (tapB - loopLp[1]);   tapB = loopLp[1];
+        }
+        else
+        {
+            loopLp[0] = tapA;  loopLp[1] = tapB;
+        }
+
         tapA = loopLimit (tapA);
         tapB = loopLimit (tapB);
+
+        // ---- shimmer: the fed-back signal is pitch-shifted (two crossfaded delay taps), so every repeat climbs / falls
+        float fbSrcA = tapA, fbSrcB = tapB;
+        shimRing[0][static_cast<size_t> (shimWrite)] = tapA;
+        shimRing[1][static_cast<size_t> (shimWrite)] = tapB;
+        if (shimAmt > 0.0f)
+        {
+            const float phi = shimPhase;
+            const float phi2 = phi >= 0.5f ? phi - 0.5f : phi + 0.5f;
+            const float w1 = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * phi);
+            const float w2 = 1.0f - w1;
+            const float d1 = 2.0f + phi * shimWin, d2 = 2.0f + phi2 * shimWin;
+            const float shA = w1 * readShim (0, d1) + w2 * readShim (0, d2);
+            const float shB = w1 * readShim (1, d1) + w2 * readShim (1, d2);
+            fbSrcA = loopLimit (tapA * (1.0f - shimAmt) + shA * shimAmt);
+            fbSrcB = loopLimit (tapB * (1.0f - shimAmt) + shB * shimAmt);
+
+            shimPhase += (1.0f - shimRatio) / shimWin;
+            while (shimPhase >= 1.0f) shimPhase -= 1.0f;
+            while (shimPhase < 0.0f)  shimPhase += 1.0f;
+        }
+        shimWrite = (shimWrite + 1) & (kShimRing - 1);
 
         const float inLeft  = leftIn[i];
         const float inRight = rightIn[i];
 
         // ---- ducker envelope follows the dry input
-        const float inLevel = std::max (std::abs (inLeft), std::abs (inRight));
+        const float inLevel = scL != nullptr ? std::max (std::abs (scL[i]), std::abs (scR[i]))
+                                             : std::max (std::abs (inLeft), std::abs (inRight));
         duckEnvelope += (inLevel - duckEnvelope) * (inLevel > duckEnvelope ? duckAttack : duckRelease);
         // engaged from about -45 dB, fully by about -18 dB; feedback keeps running so trails return in the gaps
         const float duckAmount = juce::jlimit (0.0f, 1.0f, (duckEnvelope - 0.0056f) / (0.126f - 0.0056f));
@@ -517,8 +718,8 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer)
         const float injA = inLeft * (1.0f - ping);
         const float injB = inRight * (1.0f - ping) + mid * ping;
 
-        const float fbA = tapA * (1.0f - ping) + tapB * ping;   // ping-pong feeds each line from the other
-        const float fbB = tapB * (1.0f - ping) + tapA * ping;
+        const float fbA = fbSrcA * (1.0f - ping) + fbSrcB * ping;   // ping-pong feeds each line from the other
+        const float fbB = fbSrcB * (1.0f - ping) + fbSrcA * ping;
         delayLeftPtr[writePosition]  = injA + fbA * feedbackVal;
         delayRightPtr[writePosition] = injB + fbB * feedbackVal;
 

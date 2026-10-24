@@ -53,6 +53,7 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     setupKnob (ducking, "DUCKING", "DUCKER", percent);
     setupKnob (dry,     "DRY",     "DRY",    percent);
     setupKnob (wet,     "WET",     "WET",    percent);
+    setupKnob (shimmer, "SHIMMER", "SHIM",   percent);
 
     // TIME: its attachment (ms vs note value) is chosen by applyTimeMode()
     time.slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
@@ -69,6 +70,39 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     pingBtn.setClickingTogglesState (true);
     pingBtn.onClick = [this]() { setChoice ("FB_MODE", pingBtn.getToggleState() ? 2 : 0); };
     addAndMakeVisible (pingBtn);
+
+    revBtn.setClickingTogglesState (true);
+    revBtn.onClick = [this]() { setChoice ("REVERSE", revBtn.getToggleState() ? 1 : 0); };
+    addAndMakeVisible (revBtn);
+
+    shimPitchBtn.onClick = [this]()
+    {
+        const int cur = static_cast<int> (audioProcessor.apvts.getRawParameterValue ("SHIM_PITCH")->load() + 0.5f);
+        setChoice ("SHIM_PITCH", (cur + 1) % kNumShimIntervals);
+    };
+    addAndMakeVisible (shimPitchBtn);
+
+    // A / B compare
+    juce::TextButton* ab[2] = { &abA, &abB };
+    for (int i = 0; i < 2; ++i)
+    {
+        ab[i]->setRadioGroupId (1002);
+        ab[i]->setClickingTogglesState (true);
+        ab[i]->setConnectedEdges (i == 0 ? juce::Button::ConnectedOnRight : juce::Button::ConnectedOnLeft);
+        ab[i]->onClick = [this, i]() { audioProcessor.selectABSlot (i); refreshButtons(); };
+        addAndMakeVisible (ab[i]);
+    }
+
+    // presets: [<] name [>]
+    presetPrev.setConnectedEdges (juce::Button::ConnectedOnRight);
+    presetBtn.setConnectedEdges (juce::Button::ConnectedOnLeft | juce::Button::ConnectedOnRight);
+    presetNext.setConnectedEdges (juce::Button::ConnectedOnLeft);
+    presetPrev.onClick = [this]() { stepPreset (-1); };
+    presetNext.onClick = [this]() { stepPreset (+1); };
+    presetBtn.onClick  = [this]() { showPresetMenu(); };
+    addAndMakeVisible (presetPrev);
+    addAndMakeVisible (presetBtn);
+    addAndMakeVisible (presetNext);
 
     // straight / dotted / triplet - only shown while tempo sync is on
     juce::TextButton* feel[3] = { &feelStraightBtn, &feelDottedBtn, &feelTripletBtn };
@@ -133,6 +167,43 @@ void DelayAudioProcessorEditor::refreshButtons()
 
     const int fbMode = static_cast<int> (audioProcessor.apvts.getRawParameterValue ("FB_MODE")->load() + 0.5f);
     pingBtn.setToggleState (fbMode == 2, juce::dontSendNotification);
+
+    revBtn.setToggleState (audioProcessor.apvts.getRawParameterValue ("REVERSE")->load() > 0.5f, juce::dontSendNotification);
+
+    const int pitchIdx = juce::jlimit (0, kNumShimIntervals - 1,
+                                       static_cast<int> (audioProcessor.apvts.getRawParameterValue ("SHIM_PITCH")->load() + 0.5f));
+    shimPitchBtn.setButtonText (kShimNames[pitchIdx]);
+
+    abA.setToggleState (audioProcessor.getABSlot() == 0, juce::dontSendNotification);
+    abB.setToggleState (audioProcessor.getABSlot() == 1, juce::dontSendNotification);
+
+    presetBtn.setButtonText (audioProcessor.getProgramName (audioProcessor.getCurrentProgram()));
+}
+
+void DelayAudioProcessorEditor::showPresetMenu()
+{
+    juce::PopupMenu menu;
+    menu.setLookAndFeel (&skellLookAndFeel);
+    const int current = audioProcessor.getCurrentProgram();
+    for (int i = 0; i < audioProcessor.getNumPrograms(); ++i)
+        menu.addItem (i + 1, audioProcessor.getProgramName (i), true, i == current);
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&presetBtn).withMinimumWidth (presetBtn.getWidth()),
+                        [this] (int result)
+                        {
+                            if (result > 0)
+                            {
+                                audioProcessor.setCurrentProgram (result - 1);
+                                refreshButtons();
+                            }
+                        });
+}
+
+void DelayAudioProcessorEditor::stepPreset (int delta)
+{
+    const int n = audioProcessor.getNumPrograms();
+    audioProcessor.setCurrentProgram ((audioProcessor.getCurrentProgram() + delta + n) % n);
+    refreshButtons();
 }
 
 void DelayAudioProcessorEditor::applyTimeMode (bool sync)
@@ -219,27 +290,37 @@ void DelayAudioProcessorEditor::resized()
     leftMeter.setBounds  (11, 47, 9, 144);
     rightMeter.setBounds (700, 47, 9, 144);
 
-    const int small = 44, big = 62;
+    const int small = 42, big = 62;
     const int smallTop = 113, bigTop = 96;   // labels of both sizes share one baseline
 
-    // left: PAN  TONE  TAPE  |  TIME
-    placeKnob (pan,   62,  smallTop, small);
-    placeKnob (hiCut, 116, smallTop, small);
-    placeKnob (tape,  170, smallTop, small);
-    placeKnob (time,  240, bigTop,   big);
+    // left: PAN  TONE  TAPE  SHIM  |  TIME
+    placeKnob (pan,     62,  smallTop, small);
+    placeKnob (hiCut,   108, smallTop, small);
+    placeKnob (tape,    154, smallTop, small);
+    placeKnob (shimmer, 200, smallTop, small);
+    shimPitchBtn.setBounds (200 - 16, 95, 32, 14);
+    placeKnob (time,    258, bigTop,   big);
 
-    // centre: readout + switches
-    const int cx = 298, cw = 124;
-    delayDisplay.setBounds (cx, 82, cw, 38);
-    syncBtn.setBounds (cx,            128, 62, 16);
-    pingBtn.setBounds (cx + 64,       128, 60, 16);
-    feelStraightBtn.setBounds (cx,                 148, cw / 3, 16);
-    feelDottedBtn.setBounds   (cx + cw / 3,        148, cw / 3, 16);
-    feelTripletBtn.setBounds  (cx + 2 * (cw / 3),  148, cw - 2 * (cw / 3), 16);
+    // centre: preset bar, readout, switches
+    const int cx = 302, cw = 120;
+    presetPrev.setBounds (cx,            64, 16, 16);
+    presetBtn.setBounds  (cx + 16,       64, cw - 32, 16);
+    presetNext.setBounds (cx + cw - 16,  64, 16, 16);
+
+    delayDisplay.setBounds (cx, 84, cw, 32);
+    syncBtn.setBounds (cx,           120, 58, 16);
+    pingBtn.setBounds (cx + 60,      120, 60, 16);
+    feelStraightBtn.setBounds (cx,                 139, cw / 3, 16);
+    feelDottedBtn.setBounds   (cx + cw / 3,        139, cw / 3, 16);
+    feelTripletBtn.setBounds  (cx + 2 * (cw / 3),  139, cw - 2 * (cw / 3), 16);
+
+    revBtn.setBounds (cx,        158, 62, 16);
+    abA.setBounds    (cx + 64,   158, 28, 16);
+    abB.setBounds    (cx + 92,   158, 28, 16);
 
     // right: FEEDBACK  |  DUCKER  DRY  WET
-    placeKnob (feedback, 480, bigTop,   big);
-    placeKnob (ducking,  550, smallTop, small);
-    placeKnob (dry,      606, smallTop, small);
-    placeKnob (wet,      660, smallTop, small);
+    placeKnob (feedback, 486, bigTop,   big);
+    placeKnob (ducking,  552, smallTop, small);
+    placeKnob (dry,      604, smallTop, small);
+    placeKnob (wet,      656, smallTop, small);
 }
