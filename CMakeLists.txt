@@ -40,6 +40,7 @@ target_sources(DelayPlugin
     PRIVATE
         Source/PluginProcessor.h
         Source/PluginProcessor.cpp
+        Source/Presets.h
         Source/PluginEditor.h
         Source/PluginEditor.cpp
         Source/SkellLookAndFeel.h
