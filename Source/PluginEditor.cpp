@@ -43,6 +43,11 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
 
     // ---- knobs: (knob, parameter id, label, readout shown while hovering / dragging)
     setupKnob (feedback, "FEEDBACK", "FEEDBACK", percent);
+    setupKnob (pan, "PAN", "PAN", [] (double v)
+    {
+        const int p = juce::roundToInt (std::abs (v) * 100.0);
+        return p == 0 ? juce::String ("C") : (v < 0 ? "L" : "R") + juce::String (p);
+    });
     setupKnob (hiCut,   "HICUT",   "TONE",   hertz);
     setupKnob (tape,    "TAPE",    "TAPE",   percent);
     setupKnob (ducking, "DUCKING", "DUCKER", percent);
@@ -299,10 +304,11 @@ void DelayAudioProcessorEditor::resized()
     const int small = 44, big = 64;
     const int smallTop = 112, bigTop = 94;   // labels of both sizes share one baseline
 
-    // left: TONE  TAPE  |  TIME        right: FEEDBACK  |  DUCKER  DRY  WET
-    placeKnob (hiCut,   96,  smallTop, small);
-    placeKnob (tape,    164, smallTop, small);
-    placeKnob (time,    244, bigTop,   big);
+    // left: PAN  TONE  TAPE  |  TIME        right: FEEDBACK  |  DUCKER  DRY  WET (mirrored about the centre)
+    placeKnob (pan,     78,  smallTop, small);
+    placeKnob (hiCut,   130, smallTop, small);
+    placeKnob (tape,    182, smallTop, small);
+    placeKnob (time,    252, bigTop,   big);
 
     placeKnob (feedback, 468, bigTop,   big);
     placeKnob (ducking,  538, smallTop, small);
