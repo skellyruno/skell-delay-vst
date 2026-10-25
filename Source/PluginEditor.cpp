@@ -309,25 +309,27 @@ void DelayAudioProcessorEditor::resized()
     placeKnob (dry,      590, smallTop, small);
     placeKnob (wet,      642, smallTop, small);
 
-    // centre: preset name, a big readout, one row of text switches
+    // centre column: preset, a compact readout, two quiet rows of text switches
     const int cx = 302, cw = 120;
-    presetPrev.setBounds (cx,            70, 18, 16);
-    presetBtn.setBounds  (cx + 18,       70, cw - 36, 16);
-    presetNext.setBounds (cx + cw - 18,  70, 18, 16);
-    delayDisplay.setBounds (cx, 88, cw, 56);
+    presetPrev.setBounds (cx,            76, 18, 16);
+    presetBtn.setBounds  (cx + 18,       76, cw - 36, 16);
+    presetNext.setBounds (cx + cw - 18,  76, 18, 16);
+
+    delayDisplay.setBounds (cx + 8, 98, cw - 16, 32);
 
     const int bw = cw / 4;
-    syncBtn.setBounds  (cx,          150, bw, 16);
-    pingBtn.setBounds  (cx + bw,     150, bw, 16);
-    revBtn.setBounds   (cx + 2 * bw, 150, bw, 16);
-    shimBtn.setBounds  (cx + 3 * bw, 150, bw, 16);
+    syncBtn.setBounds (cx,          138, bw, 16);
+    pingBtn.setBounds (cx + bw,     138, bw, 16);
+    revBtn.setBounds  (cx + 2 * bw, 138, bw, 16);
+    shimBtn.setBounds (cx + 3 * bw, 138, bw, 16);
+
     if (feelBtn.isVisible())   // tempo sync on: feel on the left, modulation on the right
     {
-        feelBtn.setBounds (cx,      168, 58, 16);
-        modCtl.setBounds  (cx + 62, 168, 58, 16);
+        feelBtn.setBounds (cx,      158, 58, 16);
+        modCtl.setBounds  (cx + 62, 158, 58, 16);
     }
     else
     {
-        modCtl.setBounds (cx + 31, 168, 58, 16);
+        modCtl.setBounds (cx + 31, 158, 58, 16);
     }
 }
