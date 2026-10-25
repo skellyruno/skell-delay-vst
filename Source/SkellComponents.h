@@ -158,7 +158,7 @@ public:
         g.setColour (juce::Colour (0xff040a03));
         g.fillRoundedRectangle (bounds, 5.0f);
 
-        auto area = bounds.reduced (7.0f, 5.0f);
+        auto area = bounds.reduced (6.0f, 4.0f);
         const float midY = area.getCentreY();
         const float halfH = area.getHeight() * 0.5f;
 
@@ -239,7 +239,7 @@ public:
             if (extras.shimmer > 0.01f && i > 0)
             {
                 const float climb = static_cast<float> (i) * 1.2f * extras.shimmer;
-                g.setColour (lime.withAlpha (juce::jlimit (0.0f, 0.95f, 0.35f + 0.6f * extras.shimmer * level + 0.3f * boost)));
+                g.setColour (lime.withAlpha (juce::jlimit (0.0f, 0.95f, 0.25f + 0.35f * extras.shimmer * level + 0.2f * boost)));
                 juce::Path chev;
                 const float cx2 = x + barW * 0.5f;
                 if (extras.shimUp)
@@ -297,8 +297,11 @@ public:
         const float alpha = (active ? 1.0f : 0.45f) * (isMouseOver() ? 1.0f : 0.8f);
 
         auto b = getLocalBounds().toFloat();
-        g.setColour (lime.withAlpha (0.25f * alpha));
-        g.drawRoundedRectangle (b.reduced (0.5f), 4.0f, 1.0f);
+        if (isMouseOver())
+        {
+            g.setColour (lime.withAlpha (0.08f));
+            g.fillRoundedRectangle (b.reduced (1.0f), 4.0f);
+        }
 
         // waveform icon
         auto icon = juce::Rectangle<float> (b.getX() + 6.0f, b.getCentreY() - 3.5f, 18.0f, 7.0f);
