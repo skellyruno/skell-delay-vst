@@ -31,6 +31,7 @@ private:
     void placeKnob (Knob& k, int centreX, int topY, int size);
 
     void setChoice (const juce::String& paramId, int index);
+    void setParamValue (const juce::String& paramId, float value);
     void refreshButtons();
 
     void showPresetMenu();
@@ -43,22 +44,29 @@ private:
     SkellLookAndFeel skellLookAndFeel;
     juce::Image bgImage;
 
-    SkellMeter leftMeter, rightMeter;
+    SkellMeter leftMeter { false }, rightMeter { true };
     SkellDisplay delayDisplay;
 
     // Main controls. Everything else (lo-cut, attack/sustain, swirl, sauce, wider, richer,
     // mono, destiny, cheap, smooth ...) is still a working, automatable parameter at a neutral default.
     Knob time, feedback;
-    Knob pan, hiCut, tape;
-    Knob ducking, dry, wet;
-    Knob shimmer;
+    Knob hiCut, tape;
+    Knob ducking;
+
+    // One MIX knob drives DRY and WET together: first half brings the echoes in (dry stays full),
+    // second half takes the dry signal out. The individual DRY / WET parameters stay automatable.
+    juce::Slider mixSlider;
+    juce::Label mixLabel;
+    void syncMixFromParams();
+    void applyMix (double mix);
+    bool mixDragging = false;
 
     juce::TextButton syncBtn { "FREE" };
     juce::TextButton pingBtn { "PING PONG" };
     juce::TextButton feelStraightBtn { "STR" }, feelDottedBtn { "DOT" }, feelTripletBtn { "TRI" };
 
-    juce::TextButton revBtn { "REVERSE" };
-    juce::TextButton shimPitchBtn { "+12" };
+    juce::TextButton revBtn { "REV" };
+    juce::TextButton shimBtn { "SHIM" };
     juce::TextButton abA { "A" }, abB { "B" };
     juce::TextButton presetPrev { "<" }, presetBtn { "Init" }, presetNext { ">" };
 
