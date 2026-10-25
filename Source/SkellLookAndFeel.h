@@ -140,6 +140,16 @@ public:
     {
         juce::ignoreUnused (backgroundColour, shouldDrawButtonAsDown);
 
+        if (button.getProperties().contains ("flat"))   // text-only switches: no box at all
+        {
+            if (shouldDrawButtonAsHighlighted)
+            {
+                g.setColour (juce::Colour (0xff39ff14).withAlpha (0.08f));
+                g.fillRoundedRectangle (button.getLocalBounds().toFloat().reduced (1.0f), 4.0f);
+            }
+            return;
+        }
+
         auto bounds = button.getLocalBounds().toFloat().reduced (0.5f);
         const bool isActive = button.getToggleState();
         const int edges = button.getConnectedEdgeFlags();
@@ -163,9 +173,38 @@ public:
     void drawButtonText (juce::Graphics& g, juce::TextButton& button,
                         bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown) override
     {
-        juce::ignoreUnused (shouldDrawButtonAsHighlighted, shouldDrawButtonAsDown);
+        juce::ignoreUnused (shouldDrawButtonAsDown);
 
         const bool isActive = button.getToggleState();
+
+        if (button.getProperties().contains ("flat"))
+        {
+            const bool isToggle = button.getClickingTogglesState() || button.getProperties().contains ("led");
+            const auto lime = juce::Colour (0xff39ff14);
+            const bool bright = isActive || ! isToggle;
+            auto c = bright ? lime : juce::Colour (0xff2a7a14);
+            if (shouldDrawButtonAsHighlighted) c = c.brighter (0.25f);
+
+            const float size = button.getProperties().contains ("big") ? 10.0f : 8.5f;
+            g.setColour (c);
+            g.setFont (juce::FontOptions (size).withStyle ("Bold"));
+            auto area = button.getLocalBounds();
+            g.drawText (button.getButtonText(), area, juce::Justification::centred, false);
+
+            if (isToggle && isActive)   // small glowing bar under the text
+            {
+                juce::GlyphArrangement ga;
+                ga.addLineOfText (juce::FontOptions (size).withStyle ("Bold"), button.getButtonText(), 0.0f, 0.0f);
+                const auto w = juce::jmin (static_cast<float> (area.getWidth()) - 6.0f,
+                                           ga.getBoundingBox (0, -1, true).getWidth() + 4.0f);
+                const auto bar = juce::Rectangle<float> (area.getCentreX() - w * 0.5f, static_cast<float> (area.getBottom()) - 3.0f, w, 1.5f);
+                g.setColour (lime.withAlpha (0.35f));
+                g.fillRoundedRectangle (bar.expanded (0.0f, 1.5f), 1.5f);
+                g.setColour (lime);
+                g.fillRoundedRectangle (bar, 0.75f);
+            }
+            return;
+        }
 
         g.setColour (isActive ? juce::Colour (0xff040a02) : juce::Colour (0xff2ccb0f));
         g.setFont (juce::FontOptions (8.0f).withStyle ("Bold"));
