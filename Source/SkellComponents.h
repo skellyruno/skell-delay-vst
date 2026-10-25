@@ -1,9 +1,17 @@
 #pragma once
 #include <JuceHeader.h>
 
+// Level meter that follows the artwork's border channel: a vertical rail that flares inward at the
+// bottom, where the frame curves toward the skull. Boundary points were measured from the artwork
+// (window coordinates for the left edge; the right meter is the mirror image).
 class SkellMeter : public juce::Component
 {
 public:
+    explicit SkellMeter (bool isRightSide = false) : right (isRightSide)
+    {
+        setInterceptsMouseClicks (false, false);
+    }
+
     void setLevel (float newLevel)
     {
         // Peak (linear) -> dB scale (-48..0 dB) with instant attack and smooth fall
@@ -15,26 +23,106 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        auto bounds = getLocalBounds().toFloat();
-        g.setColour (juce::Colour (0xff0a120a));
-        g.fillRoundedRectangle (bounds, 2.0f);
+        constexpr float yTop = 108.0f, yBottom = 205.0f;
+        constexpr int numSegments = 18;
+        constexpr float gap = 1.3f;
+        const float segH = ((yBottom - yTop) - gap * (numSegments - 1)) / numSegments;
+        const int lit = static_cast<int> (level * numSegments);
 
-        const int numSegments = 18;
-        const float gap = 1.5f;
-        const float segHeight = (bounds.getHeight() - (gap * (numSegments + 1))) / numSegments;
-        const int litSegments = static_cast<int>(level * numSegments);
+        // whole rail, dark
+        juce::Path rail;
+        buildRail (rail, yTop - 1.0f, yBottom + 1.0f);
+        g.setColour (juce::Colour (0xff070d07));
+        g.fillPath (rail);
 
         for (int i = 0; i < numSegments; ++i)
         {
-            float yPos = bounds.getBottom() - ((i + 1) * (segHeight + gap));
-            bool isLit = i < litSegments;
-            juce::Colour ledColour = (i >= 16) ? juce::Colour (0xffff3333) : juce::Colour (0xff39ff14);
-            g.setColour (isLit ? ledColour : ledColour.withAlpha (0.15f));
-            g.fillRect (bounds.getX() + 1.5f, yPos, bounds.getWidth() - 3.0f, segHeight);
+            const float yb = yBottom - static_cast<float> (i) * (segH + gap);
+            juce::Path seg;
+            buildQuad (seg, yb - segH, yb, 1.0f);
+            const bool red = i >= 16;
+            const juce::Colour c = red ? juce::Colour (0xffff3333) : juce::Colour (0xff39ff14);
+            g.setColour (i < lit ? c : c.withAlpha (0.14f));
+            g.fillPath (seg);
         }
     }
 
 private:
+    struct Row { float y, xl, xr; };
+
+    // channel between the outer and inner border lines (left side, window coordinates)
+    static const Row* rows (int& n)
+    {
+        static const Row table[] = {
+            { 106.0f, 12.1f, 26.4f }, { 110.0f, 12.1f, 24.6f }, { 113.0f, 12.1f, 22.3f }, { 116.0f, 12.1f, 20.6f },
+            { 122.0f, 12.1f, 20.2f }, { 143.0f, 12.1f, 20.2f }, { 146.0f, 12.1f, 21.9f }, { 149.0f, 12.1f, 22.9f },
+            { 188.0f, 12.1f, 22.9f }, { 191.0f, 12.1f, 24.3f }, { 194.0f, 12.8f, 26.3f }, { 197.0f, 14.8f, 28.3f },
+            { 200.0f, 17.5f, 30.4f }, { 203.0f, 19.9f, 31.4f }, { 206.0f, 21.6f, 36.8f }, { 209.0f, 22.5f, 40.1f }
+        };
+        n = static_cast<int> (sizeof (table) / sizeof (table[0]));
+        return table;
+    }
+
+    void edgesAt (float y, float& xl, float& xr) const
+    {
+        int n = 0;
+        const Row* t = rows (n);
+        y = juce::jlimit (t[0].y, t[n - 1].y, y);
+        int k = 0;
+        while (k < n - 2 && y > t[k + 1].y) ++k;
+        const float f = (y - t[k].y) / (t[k + 1].y - t[k].y);
+        xl = t[k].xl + f * (t[k + 1].xl - t[k].xl);
+        xr = t[k].xr + f * (t[k + 1].xr - t[k].xr);
+    }
+
+    // the whole channel: follows every measured point, not just the two ends
+    void buildRail (juce::Path& p, float y0, float y1) const
+    {
+        auto toLocal = [this] (float x, float y)
+        {
+            const float ax = right ? static_cast<float> (getParentWidth()) - x : x;
+            return juce::Point<float> (ax - static_cast<float> (getX()), y - static_cast<float> (getY()));
+        };
+        int n = 0;
+        const Row* t = rows (n);
+        float l, r;
+        edgesAt (y0, l, r);
+        p.startNewSubPath (toLocal (l, y0));
+        for (int i = 0; i < n; ++i)
+            if (t[i].y > y0 && t[i].y < y1)
+                p.lineTo (toLocal (t[i].xl, t[i].y));
+        edgesAt (y1, l, r);
+        p.lineTo (toLocal (l, y1));
+        p.lineTo (toLocal (r, y1));
+        for (int i = n - 1; i >= 0; --i)
+            if (t[i].y > y0 && t[i].y < y1)
+                p.lineTo (toLocal (t[i].xr, t[i].y));
+        edgesAt (y0, l, r);
+        p.lineTo (toLocal (r, y0));
+        p.closeSubPath();
+    }
+
+    // quad between y0 and y1 following the channel edges, inset by `inset` pixels
+    void buildQuad (juce::Path& p, float y0, float y1, float inset) const
+    {
+        float l0, r0, l1, r1;
+        edgesAt (y0, l0, r0);
+        edgesAt (y1, l1, r1);
+        l0 += inset; l1 += inset; r0 -= inset; r1 -= inset;
+
+        auto toLocal = [this] (float x, float y)
+        {
+            const float ax = right ? static_cast<float> (getParentWidth()) - x : x;
+            return juce::Point<float> (ax - static_cast<float> (getX()), y - static_cast<float> (getY()));
+        };
+        p.startNewSubPath (toLocal (l0, y0));
+        p.lineTo (toLocal (r0, y0));
+        p.lineTo (toLocal (r1, y1));
+        p.lineTo (toLocal (l1, y1));
+        p.closeSubPath();
+    }
+
+    bool right;
     float level = 0.0f;
 };
 
