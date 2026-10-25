@@ -111,6 +111,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout DelayAudioProcessor::createP
     addFloat ("SAUCE", "Sauce", Range (0.0f, 1.0f, 0.01f), 0.0f);
 
     // ---- Stereo ----
+    Range modRate (0.1f, 8.0f, 0.01f);  modRate.setSkewForCentre (1.0f);
+    addFloat ("MOD_RATE", "Mod Rate", modRate, 1.0f);                       // speed multiplier for Wider / Richer
+    addChoice ("MOD_SHAPE", "Mod Shape", { "Sine", "Triangle", "Random" }, 0);
     addFloat ("WIDER",  "Wider",  Range (0.0f, 1.0f, 0.01f), 0.0f);
     addFloat ("RICHER", "Richer", Range (0.0f, 1.0f, 0.01f), 0.0f);
     addFloat ("PAN",    "Pan",    Range (-1.0f, 1.0f, 0.01f), 0.0f);
@@ -255,6 +258,7 @@ void DelayAudioProcessor::clearState()
     shimPhase = 0.0f;
 
     phaseWider = phaseRicher1 = phaseRicher2 = phaseSwirl = 0.0;
+    for (int k = 0; k < 3; ++k) rndHeld[k] = rndSmooth[k] = 0.0f;
     destinyCountdown = 0;
     envFast = envSlow = 0.0f;
     duckEnvelope = 0.0f;
@@ -448,9 +452,38 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const 
     const float maxDelaySamples = static_cast<float> (delayBufLen - 16);
 
     // Modulation / detector constants
-    const double incWider   = juce::MathConstants<double>::twoPi * 0.23 / sampleRate;
-    const double incRicher1 = juce::MathConstants<double>::twoPi * 0.70 / sampleRate;
-    const double incRicher2 = juce::MathConstants<double>::twoPi * 1.31 / sampleRate;
+    const double modRateMul = juce::jlimit (0.1f, 8.0f, param ("MOD_RATE"));
+    const int    modShape   = static_cast<int> (param ("MOD_SHAPE") + 0.5f);   // 0 sine, 1 triangle, 2 random
+    const double incWider   = juce::MathConstants<double>::twoPi * 0.23 * modRateMul / sampleRate;
+    const double incRicher1 = juce::MathConstants<double>::twoPi * 0.70 * modRateMul / sampleRate;
+    const double incRicher2 = juce::MathConstants<double>::twoPi * 1.31 * modRateMul / sampleRate;
+
+    // one LFO value for slot k at the given phase, in the chosen shape
+    auto lfoShape = [this, modShape] (int k, double phase, double inc)
+    {
+        switch (modShape)
+        {
+            case 1:
+            {
+                const float t = static_cast<float> (phase / juce::MathConstants<double>::twoPi);
+                return t < 0.25f ? 4.0f * t : (t < 0.75f ? 2.0f - 4.0f * t : 4.0f * t - 4.0f);
+            }
+            case 2:
+                rndSmooth[k] += juce::jmin (0.5f, 3.0f * static_cast<float> (inc)) * (rndHeld[k] - rndSmooth[k]);
+                return rndSmooth[k];
+            default:
+                return static_cast<float> (std::sin (phase));
+        }
+    };
+    auto advanceLfo = [this] (int k, double& phase, double inc)
+    {
+        phase += inc;
+        if (phase >= juce::MathConstants<double>::twoPi)
+        {
+            phase -= juce::MathConstants<double>::twoPi;
+            rndHeld[k] = rng.nextFloat() * 2.0f - 1.0f;   // new random target once per cycle
+        }
+    };
     const double incSwirl   = juce::MathConstants<double>::twoPi * 0.35 / sampleRate;
 
     const int   destinyPeriod = static_cast<int> (0.11f * sr);
@@ -569,11 +602,11 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const 
         // ---- modulated read positions
         const float base = smoothDelayTime.getNextValue();
 
-        const float lfoW  = static_cast<float> (std::sin (phaseWider));
-        const float lfoR  = (static_cast<float> (std::sin (phaseRicher1)) + 0.5f * static_cast<float> (std::sin (phaseRicher2))) * (1.0f / 1.5f);
-        phaseWider   += incWider;   if (phaseWider   >= juce::MathConstants<double>::twoPi) phaseWider   -= juce::MathConstants<double>::twoPi;
-        phaseRicher1 += incRicher1; if (phaseRicher1 >= juce::MathConstants<double>::twoPi) phaseRicher1 -= juce::MathConstants<double>::twoPi;
-        phaseRicher2 += incRicher2; if (phaseRicher2 >= juce::MathConstants<double>::twoPi) phaseRicher2 -= juce::MathConstants<double>::twoPi;
+        const float lfoW  = lfoShape (0, phaseWider, incWider);
+        const float lfoR  = (lfoShape (1, phaseRicher1, incRicher1) + 0.5f * lfoShape (2, phaseRicher2, incRicher2)) * (1.0f / 1.5f);
+        advanceLfo (0, phaseWider,   incWider);
+        advanceLfo (1, phaseRicher1, incRicher1);
+        advanceLfo (2, phaseRicher2, incRicher2);
 
         float modL = richerDepth * lfoR + widerDepth * lfoW;
         float modR = richerDepth * lfoR - widerDepth * lfoW;
