@@ -50,7 +50,7 @@ private:
     // Main controls. Everything else (lo-cut, attack/sustain, swirl, sauce, wider, richer,
     // mono, destiny, cheap, smooth ...) is still a working, automatable parameter at a neutral default.
     Knob time, feedback;
-    Knob hiCut, tape;
+    Knob pan, hiCut, tape;
     Knob ducking, dry, wet;
 
     juce::TextButton syncBtn { "FREE" };
