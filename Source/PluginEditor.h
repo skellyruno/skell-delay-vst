@@ -35,6 +35,7 @@ private:
     void refreshButtons();
 
     void showPresetMenu();
+    void stepPreset (int delta);
 
     void setSync (bool shouldSync);
     void applyTimeMode (bool sync);   // re-points the TIME knob at ms (free) or note value (sync)
@@ -58,7 +59,8 @@ private:
 
     juce::TextButton revBtn { "REV" };
     juce::TextButton shimBtn { "SHIM" };
-    juce::TextButton presetBtn { "Init" };
+    juce::TextButton presetPrev { "<" }, presetBtn { "Init" }, presetNext { ">" };
+    SkellModControl modCtl { audioProcessor.apvts };
 
     bool timeIsSync = false;
 
