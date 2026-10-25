@@ -128,6 +128,7 @@ private:
 
     // Wider / Richer / Destiny modulation of the delay time
     double phaseWider = 0.0, phaseRicher1 = 0.0, phaseRicher2 = 0.0;
+    float rndHeld[3] { 0.0f, 0.0f, 0.0f }, rndSmooth[3] { 0.0f, 0.0f, 0.0f };   // "Random" LFO shape: glided sample & hold
     juce::Random rng;
     float destinyTarget[2] { 0.0f, 0.0f };
     float destinyValue[2]  { 0.0f, 0.0f };
