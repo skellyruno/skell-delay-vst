@@ -91,10 +91,16 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     addAndMakeVisible (shimBtn);
 
     // presets: click the name to open the menu
-    presetBtn.getProperties().set ("flat", true);
-    presetBtn.getProperties().set ("big", true);
-    presetBtn.onClick = [this]() { showPresetMenu(); };
-    addAndMakeVisible (presetBtn);
+    for (auto* b : { &presetPrev, &presetBtn, &presetNext })
+    {
+        b->getProperties().set ("flat", true);
+        b->getProperties().set ("big", true);
+        addAndMakeVisible (b);
+    }
+    presetBtn.onClick  = [this]() { showPresetMenu(); };
+    presetPrev.onClick = [this]() { stepPreset (-1); };
+    presetNext.onClick = [this]() { stepPreset (+1); };
+    addAndMakeVisible (modCtl);
 
     // feel: one button that cycles straight -> dotted -> triplet; only shown while tempo sync is on
     feelBtn.onClick = [this]()
@@ -112,6 +118,7 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     applyTimeMode (audioProcessor.apvts.getRawParameterValue ("SYNC")->load() > 0.5f);
     refreshButtons();
 
+    timerCallback();   // show the real state from the first frame
     startTimerHz (30);
     setSize (kWidth, kHeight);
 }
@@ -172,6 +179,13 @@ void DelayAudioProcessorEditor::refreshButtons()
     presetBtn.setButtonText (audioProcessor.getProgramName (audioProcessor.getCurrentProgram()));
 }
 
+void DelayAudioProcessorEditor::stepPreset (int delta)
+{
+    const int n = audioProcessor.getNumPrograms();
+    audioProcessor.setCurrentProgram ((audioProcessor.getCurrentProgram() + delta + n) % n);
+    refreshButtons();
+}
+
 void DelayAudioProcessorEditor::showPresetMenu()
 {
     juce::PopupMenu menu;
@@ -217,6 +231,7 @@ void DelayAudioProcessorEditor::applyTimeMode (bool sync)
     syncBtn.setToggleState (sync, juce::dontSendNotification);
     syncBtn.setButtonText (sync ? "SYNC" : "FREE");
     feelBtn.setVisible (sync);
+    resized();   // the modulation control shares the bottom row with the feel button
 
     time.slider.updateText();
     time.slider.repaint();
@@ -245,10 +260,18 @@ void DelayAudioProcessorEditor::timerCallback()
     refreshButtons();
 
     const int fbMode = static_cast<int> (audioProcessor.apvts.getRawParameterValue ("FB_MODE")->load() + 0.5f);
+    auto pv = [this] (const char* id) { return audioProcessor.apvts.getRawParameterValue (id)->load(); };
+    SkellDisplay::Extras extras;
+    extras.tape = pv ("TAPE");
+    extras.sauce = pv ("SAUCE");
+    extras.shimmer = pv ("SHIMMER");
+    extras.shimUp = pv ("SHIM_PITCH") < 1.5f;   // +12 / +7 climb, -12 / -7 fall
+    extras.reverse = pv ("REVERSE") > 0.5f;
     delayDisplay.setParams (audioProcessor.getEffectiveDelayMs(),
                             static_cast<float> (feedback.slider.getValue()),
                             static_cast<float> (ducking.slider.getValue()),
-                            fbMode);
+                            fbMode, extras);
+    modCtl.repaint();
 }
 
 void DelayAudioProcessorEditor::paint (juce::Graphics& g)
@@ -288,7 +311,9 @@ void DelayAudioProcessorEditor::resized()
 
     // centre: preset name, a big readout, one row of text switches
     const int cx = 302, cw = 120;
-    presetBtn.setBounds (cx, 70, cw, 16);
+    presetPrev.setBounds (cx,            70, 18, 16);
+    presetBtn.setBounds  (cx + 18,       70, cw - 36, 16);
+    presetNext.setBounds (cx + cw - 18,  70, 18, 16);
     delayDisplay.setBounds (cx, 88, cw, 56);
 
     const int bw = cw / 4;
@@ -296,5 +321,13 @@ void DelayAudioProcessorEditor::resized()
     pingBtn.setBounds  (cx + bw,     150, bw, 16);
     revBtn.setBounds   (cx + 2 * bw, 150, bw, 16);
     shimBtn.setBounds  (cx + 3 * bw, 150, bw, 16);
-    feelBtn.setBounds  (cx,          168, cw, 14);   // only visible with tempo sync on
+    if (feelBtn.isVisible())   // tempo sync on: feel on the left, modulation on the right
+    {
+        feelBtn.setBounds (cx,      168, 58, 16);
+        modCtl.setBounds  (cx + 62, 168, 58, 16);
+    }
+    else
+    {
+        modCtl.setBounds (cx + 31, 168, 58, 16);
+    }
 }
