@@ -43,17 +43,33 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
 
     // ---- knobs: (knob, parameter id, label, readout shown while hovering / dragging)
     setupKnob (feedback, "FEEDBACK", "FEEDBACK", percent);
-    setupKnob (pan, "PAN", "PAN", [] (double v)
-    {
-        const int p = juce::roundToInt (std::abs (v) * 100.0);
-        return p == 0 ? juce::String ("C") : (v < 0 ? "L" : "R") + juce::String (p);
-    });
     setupKnob (hiCut,   "HICUT",   "TONE",   hertz);
     setupKnob (tape,    "TAPE",    "TAPE",   percent);
     setupKnob (ducking, "DUCKING", "DUCKER", percent);
-    setupKnob (dry,     "DRY",     "DRY",    percent);
-    setupKnob (wet,     "WET",     "WET",    percent);
-    setupKnob (shimmer, "SHIMMER", "SHIM",   percent);
+
+    // MIX: custom slider writing both DRY and WET
+    mixSlider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+    mixSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    mixSlider.setRange (0.0, 1.0, 0.001);
+    mixSlider.setDoubleClickReturnValue (true, 0.5);
+    mixSlider.textFromValueFunction = percent;
+    mixSlider.onDragStart = [this]()
+    {
+        mixDragging = true;
+        for (auto* id : { "DRY", "WET" })
+            if (auto* p = audioProcessor.apvts.getParameter (id)) p->beginChangeGesture();
+    };
+    mixSlider.onDragEnd = [this]()
+    {
+        for (auto* id : { "DRY", "WET" })
+            if (auto* p = audioProcessor.apvts.getParameter (id)) p->endChangeGesture();
+        mixDragging = false;
+    };
+    mixSlider.onValueChange = [this]() { applyMix (mixSlider.getValue()); };
+    addAndMakeVisible (mixSlider);
+    styleLabel (mixLabel, "MIX");
+    addAndMakeVisible (mixLabel);
+    syncMixFromParams();
 
     // TIME: its attachment (ms vs note value) is chosen by applyTimeMode()
     time.slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
@@ -75,12 +91,25 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     revBtn.onClick = [this]() { setChoice ("REVERSE", revBtn.getToggleState() ? 1 : 0); };
     addAndMakeVisible (revBtn);
 
-    shimPitchBtn.onClick = [this]()
+    // SHIM cycles: off -> +12 -> +7 -> -12 -> -7 -> off (amount 50% unless a preset set its own)
+    shimBtn.onClick = [this]()
     {
-        const int cur = static_cast<int> (audioProcessor.apvts.getRawParameterValue ("SHIM_PITCH")->load() + 0.5f);
-        setChoice ("SHIM_PITCH", (cur + 1) % kNumShimIntervals);
+        const float amount = audioProcessor.apvts.getRawParameterValue ("SHIMMER")->load();
+        const int pitch = static_cast<int> (audioProcessor.apvts.getRawParameterValue ("SHIM_PITCH")->load() + 0.5f);
+        const int state = amount > 0.001f ? 1 + pitch : 0;
+        const int next = (state + 1) % (kNumShimIntervals + 1);
+        if (next == 0)
+        {
+            setParamValue ("SHIMMER", 0.0f);
+        }
+        else
+        {
+            setParamValue ("SHIM_PITCH", static_cast<float> (next - 1));
+            setParamValue ("SHIMMER", amount > 0.001f ? amount : 0.5f);
+        }
+        refreshButtons();
     };
-    addAndMakeVisible (shimPitchBtn);
+    addAndMakeVisible (shimBtn);
 
     // A / B compare
     juce::TextButton* ab[2] = { &abA, &abB };
@@ -146,15 +175,38 @@ void DelayAudioProcessorEditor::setupKnob (Knob& k, const juce::String& paramId,
     k.slider.textFromValueFunction = std::move (textFn);   // after the attachment, which installs its own
 }
 
-void DelayAudioProcessorEditor::setChoice (const juce::String& paramId, int index)
+void DelayAudioProcessorEditor::setParamValue (const juce::String& paramId, float value)
 {
     if (auto* param = audioProcessor.apvts.getParameter (paramId))
     {
         param->beginChangeGesture();
-        param->setValueNotifyingHost (param->convertTo0to1 (static_cast<float> (index)));
+        param->setValueNotifyingHost (param->convertTo0to1 (value));
         param->endChangeGesture();
     }
+}
+
+void DelayAudioProcessorEditor::setChoice (const juce::String& paramId, int index)
+{
+    setParamValue (paramId, static_cast<float> (index));
     refreshButtons();
+}
+
+void DelayAudioProcessorEditor::applyMix (double mix)
+{
+    const float wetV = static_cast<float> (juce::jmin (1.0, mix * 2.0));
+    const float dryV = static_cast<float> (juce::jmin (1.0, (1.0 - mix) * 2.0));
+    if (auto* d = audioProcessor.apvts.getParameter ("DRY")) d->setValueNotifyingHost (d->convertTo0to1 (dryV));
+    if (auto* w = audioProcessor.apvts.getParameter ("WET")) w->setValueNotifyingHost (w->convertTo0to1 (wetV));
+}
+
+void DelayAudioProcessorEditor::syncMixFromParams()
+{
+    const double d = audioProcessor.apvts.getRawParameterValue ("DRY")->load();
+    const double w = audioProcessor.apvts.getRawParameterValue ("WET")->load();
+    double m;
+    if (d >= w)  m = d > 0.0001 ? 0.5 * w / d : 0.0;         // dry full, echoes coming in
+    else         m = w > 0.0001 ? 1.0 - 0.5 * d / w : 1.0;   // echoes full, dry going out
+    mixSlider.setValue (juce::jlimit (0.0, 1.0, m), juce::dontSendNotification);
 }
 
 // UI only - never writes a parameter, so host automation / preset recall stays in sync
@@ -172,7 +224,12 @@ void DelayAudioProcessorEditor::refreshButtons()
 
     const int pitchIdx = juce::jlimit (0, kNumShimIntervals - 1,
                                        static_cast<int> (audioProcessor.apvts.getRawParameterValue ("SHIM_PITCH")->load() + 0.5f));
-    shimPitchBtn.setButtonText (kShimNames[pitchIdx]);
+    const bool shimOn = audioProcessor.apvts.getRawParameterValue ("SHIMMER")->load() > 0.001f;
+    shimBtn.setButtonText (shimOn ? juce::String (kShimNames[pitchIdx]) : juce::String ("SHIM"));
+    shimBtn.setToggleState (shimOn, juce::dontSendNotification);
+
+    if (! mixDragging)
+        syncMixFromParams();
 
     abA.setToggleState (audioProcessor.getABSlot() == 0, juce::dontSendNotification);
     abB.setToggleState (audioProcessor.getABSlot() == 1, juce::dontSendNotification);
@@ -286,20 +343,17 @@ void DelayAudioProcessorEditor::placeKnob (Knob& k, int centreX, int topY, int s
 
 void DelayAudioProcessorEditor::resized()
 {
-    // Level meters on the frame edges
-    leftMeter.setBounds  (11, 47, 9, 144);
-    rightMeter.setBounds (700, 47, 9, 144);
+    // Level meters follow the artwork's border channel (see SkellMeter)
+    leftMeter.setBounds  (8, 104, 40, 108);
+    rightMeter.setBounds (672, 104, 40, 108);
 
-    const int small = 42, big = 62;
-    const int smallTop = 113, bigTop = 96;   // labels of both sizes share one baseline
+    const int small = 46, big = 64;
+    const int smallTop = 111, bigTop = 94;   // labels of both sizes share one baseline
 
-    // left: PAN  TONE  TAPE  SHIM  |  TIME
-    placeKnob (pan,     62,  smallTop, small);
-    placeKnob (hiCut,   108, smallTop, small);
-    placeKnob (tape,    154, smallTop, small);
-    placeKnob (shimmer, 200, smallTop, small);
-    shimPitchBtn.setBounds (200 - 16, 95, 32, 14);
-    placeKnob (time,    258, bigTop,   big);
+    // left: TONE  TAPE  |  TIME        right: FEEDBACK  |  DUCKER  MIX   (mirrored about the centre)
+    placeKnob (hiCut,   96,  smallTop, small);
+    placeKnob (tape,    164, smallTop, small);
+    placeKnob (time,    244, bigTop,   big);
 
     // centre: preset bar, readout, switches
     const int cx = 302, cw = 120;
@@ -314,13 +368,14 @@ void DelayAudioProcessorEditor::resized()
     feelDottedBtn.setBounds   (cx + cw / 3,        139, cw / 3, 16);
     feelTripletBtn.setBounds  (cx + 2 * (cw / 3),  139, cw - 2 * (cw / 3), 16);
 
-    revBtn.setBounds (cx,        158, 62, 16);
-    abA.setBounds    (cx + 64,   158, 28, 16);
-    abB.setBounds    (cx + 92,   158, 28, 16);
+    revBtn.setBounds  (cx,       158, 38, 16);
+    shimBtn.setBounds (cx + 40,  158, 40, 16);
+    abA.setBounds     (cx + 82,  158, 19, 16);
+    abB.setBounds     (cx + 101, 158, 19, 16);
 
-    // right: FEEDBACK  |  DUCKER  DRY  WET
-    placeKnob (feedback, 486, bigTop,   big);
+    placeKnob (feedback, 476, bigTop,   big);
     placeKnob (ducking,  552, smallTop, small);
-    placeKnob (dry,      604, smallTop, small);
-    placeKnob (wet,      656, smallTop, small);
+
+    mixSlider.setBounds (624 - small / 2, smallTop, small, small);
+    mixLabel.setBounds  (624 - 34, smallTop + small + 1, 68, 14);
 }
