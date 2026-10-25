@@ -1,220 +1,213 @@
 #pragma once
 #include <JuceHeader.h>
 
-// Level meter that follows the artwork's border channel: a vertical rail that flares inward at the
-// bottom, where the frame curves toward the skull. Boundary points were measured from the artwork
-// (window coordinates for the left edge; the right meter is the mirror image).
-class SkellMeter : public juce::Component
+class SkellLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
-    explicit SkellMeter (bool isRightSide = false) : right (isRightSide)
+    SkellLookAndFeel()
     {
-        setInterceptsMouseClicks (false, false);
+        setColour (juce::Slider::rotarySliderFillColourId, juce::Colour (0xff39ff14));
+        setColour (juce::Slider::thumbColourId, juce::Colour (0xff39ff14));
+        setColour (juce::Label::textColourId, juce::Colour (0xff39ff14));
+        setColour (juce::ToggleButton::tickColourId, juce::Colour (0xff39ff14));
+
+        // preset menu
+        setColour (juce::PopupMenu::backgroundColourId, juce::Colour (0xff081204));
+        setColour (juce::PopupMenu::textColourId, juce::Colour (0xff39ff14));
+        setColour (juce::PopupMenu::highlightedBackgroundColourId, juce::Colour (0xff39ff14));
+        setColour (juce::PopupMenu::highlightedTextColourId, juce::Colour (0xff040a02));
+        setColour (juce::PopupMenu::headerTextColourId, juce::Colour (0xff2ccb0f));
     }
 
-    void setLevel (float newLevel)
+    void drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height,
+                           float sliderPosProportional, float rotaryStartAngle,
+                           float rotaryEndAngle, juce::Slider& slider) override
     {
-        // Peak (linear) -> dB scale (-48..0 dB) with instant attack and smooth fall
-        const float db = juce::Decibels::gainToDecibels (newLevel, -48.0f);
-        const float target = juce::jlimit (0.0f, 1.0f, (db + 48.0f) / 48.0f);
-        level = (target > level) ? target : level * 0.88f;
-        repaint();
-    }
+        const auto radius = juce::jmin (width, height) / 2.0f - 4.0f;
+        const auto centreX = static_cast<float>(x) + static_cast<float>(width) * 0.5f;
+        const auto centreY = static_cast<float>(y) + static_cast<float>(height) * 0.5f;
 
-    void paint (juce::Graphics& g) override
-    {
-        constexpr float yTop = 108.0f, yBottom = 205.0f;
-        constexpr int numSegments = 18;
-        constexpr float gap = 1.3f;
-        const float segH = ((yBottom - yTop) - gap * (numSegments - 1)) / numSegments;
-        const int lit = static_cast<int> (level * numSegments);
+        const bool isInteracting = slider.isMouseOverOrDragging();
+        const float angle = rotaryStartAngle + sliderPosProportional * (rotaryEndAngle - rotaryStartAngle);
 
-        // whole rail, dark
-        juce::Path rail;
-        buildRail (rail, yTop - 1.0f, yBottom + 1.0f);
-        g.setColour (juce::Colour (0xff070d07));
-        g.fillPath (rail);
+        // 1. Dark Background Track
+        juce::Path bgTrack;
+        bgTrack.addCentredArc (centreX, centreY, radius - 2.0f, radius - 2.0f, 0.0f,
+                               rotaryStartAngle, rotaryEndAngle, true);
+        g.setColour (juce::Colour (0xff081404));
+        g.strokePath (bgTrack, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
-        for (int i = 0; i < numSegments; ++i)
+        // 2. Active Lime Green Arc
+        const bool isBipolar = (slider.getMinimum() < 0.0 && slider.getMaximum() > 0.0);
+        const float zeroAngle = isBipolar ? (rotaryStartAngle + rotaryEndAngle) * 0.5f : rotaryStartAngle;
+
+        if (std::abs (angle - zeroAngle) > 0.001f)
         {
-            const float yb = yBottom - static_cast<float> (i) * (segH + gap);
-            juce::Path seg;
-            buildQuad (seg, yb - segH, yb, 1.0f);
-            const bool red = i >= 16;
-            const juce::Colour c = red ? juce::Colour (0xffff3333) : juce::Colour (0xff39ff14);
-            g.setColour (i < lit ? c : c.withAlpha (0.14f));
-            g.fillPath (seg);
-        }
-    }
+            juce::Path activeTrack;
+            activeTrack.addCentredArc (centreX, centreY, radius - 2.0f, radius - 2.0f, 0.0f,
+                                       juce::jmin (zeroAngle, angle), juce::jmax (zeroAngle, angle), true);
 
-private:
-    struct Row { float y, xl, xr; };
+            juce::Colour limeColor = isInteracting ? juce::Colour (0xff66ff33) : juce::Colour (0xff39ff14);
+            g.setColour (limeColor);
+            g.strokePath (activeTrack, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
-    // channel between the outer and inner border lines (left side, window coordinates)
-    static const Row* rows (int& n)
-    {
-        static const Row table[] = {
-            { 106.0f, 12.1f, 26.4f }, { 110.0f, 12.1f, 24.6f }, { 113.0f, 12.1f, 22.3f }, { 116.0f, 12.1f, 20.6f },
-            { 122.0f, 12.1f, 20.2f }, { 143.0f, 12.1f, 20.2f }, { 146.0f, 12.1f, 21.9f }, { 149.0f, 12.1f, 22.9f },
-            { 188.0f, 12.1f, 22.9f }, { 191.0f, 12.1f, 24.3f }, { 194.0f, 12.8f, 26.3f }, { 197.0f, 14.8f, 28.3f },
-            { 200.0f, 17.5f, 30.4f }, { 203.0f, 19.9f, 31.4f }, { 206.0f, 21.6f, 36.8f }, { 209.0f, 22.5f, 40.1f }
-        };
-        n = static_cast<int> (sizeof (table) / sizeof (table[0]));
-        return table;
-    }
-
-    void edgesAt (float y, float& xl, float& xr) const
-    {
-        int n = 0;
-        const Row* t = rows (n);
-        y = juce::jlimit (t[0].y, t[n - 1].y, y);
-        int k = 0;
-        while (k < n - 2 && y > t[k + 1].y) ++k;
-        const float f = (y - t[k].y) / (t[k + 1].y - t[k].y);
-        xl = t[k].xl + f * (t[k + 1].xl - t[k].xl);
-        xr = t[k].xr + f * (t[k + 1].xr - t[k].xr);
-    }
-
-    // the whole channel: follows every measured point, not just the two ends
-    void buildRail (juce::Path& p, float y0, float y1) const
-    {
-        auto toLocal = [this] (float x, float y)
-        {
-            const float ax = right ? static_cast<float> (getParentWidth()) - x : x;
-            return juce::Point<float> (ax - static_cast<float> (getX()), y - static_cast<float> (getY()));
-        };
-        int n = 0;
-        const Row* t = rows (n);
-        float l, r;
-        edgesAt (y0, l, r);
-        p.startNewSubPath (toLocal (l, y0));
-        for (int i = 0; i < n; ++i)
-            if (t[i].y > y0 && t[i].y < y1)
-                p.lineTo (toLocal (t[i].xl, t[i].y));
-        edgesAt (y1, l, r);
-        p.lineTo (toLocal (l, y1));
-        p.lineTo (toLocal (r, y1));
-        for (int i = n - 1; i >= 0; --i)
-            if (t[i].y > y0 && t[i].y < y1)
-                p.lineTo (toLocal (t[i].xr, t[i].y));
-        edgesAt (y0, l, r);
-        p.lineTo (toLocal (r, y0));
-        p.closeSubPath();
-    }
-
-    // quad between y0 and y1 following the channel edges, inset by `inset` pixels
-    void buildQuad (juce::Path& p, float y0, float y1, float inset) const
-    {
-        float l0, r0, l1, r1;
-        edgesAt (y0, l0, r0);
-        edgesAt (y1, l1, r1);
-        l0 += inset; l1 += inset; r0 -= inset; r1 -= inset;
-
-        auto toLocal = [this] (float x, float y)
-        {
-            const float ax = right ? static_cast<float> (getParentWidth()) - x : x;
-            return juce::Point<float> (ax - static_cast<float> (getX()), y - static_cast<float> (getY()));
-        };
-        p.startNewSubPath (toLocal (l0, y0));
-        p.lineTo (toLocal (r0, y0));
-        p.lineTo (toLocal (r1, y1));
-        p.lineTo (toLocal (l1, y1));
-        p.closeSubPath();
-    }
-
-    bool right;
-    float level = 0.0f;
-};
-
-// --- Compact echo visualiser ---------------------------------------------------
-// Bars = the repeat train, decaying with FEEDBACK (ducking trims repeats after the first).
-// A pulse sweeps across the taps at the
-// real delay time so you can see the tempo of the echoes.
-//   Normal / Inverted : mirrored bars about the centre line
-//   Ping Pong         : repeats alternate up (L) / down (R)
-class SkellDisplay : public juce::Component, private juce::Timer
-{
-public:
-    SkellDisplay() { startTimerHz (30); }
-    ~SkellDisplay() override { stopTimer(); }
-
-    void setParams (float timeMs, float feedback, float ducking, int newFbMode)
-    {
-        timeValueMs = juce::jmax (10.0f, timeMs);
-        feedbackVal = feedback;
-        duckingVal = ducking;
-        fbMode = newFbMode;
-    }
-
-    void paint (juce::Graphics& g) override
-    {
-        const auto lime = juce::Colour (0xff39ff14);
-        auto bounds = getLocalBounds().toFloat().reduced (0.5f);
-
-        g.setColour (juce::Colour (0xff040a03));
-        g.fillRoundedRectangle (bounds, 5.0f);
-
-        auto area = bounds.reduced (7.0f, 5.0f);
-        const float midY = area.getCentreY();
-        const float halfH = area.getHeight() * 0.5f;
-
-        // faint grid: centre line + vertical tick marks
-        g.setColour (lime.withAlpha (0.12f));
-        g.drawHorizontalLine (juce::roundToInt (midY), area.getX(), area.getRight());
-
-        const int numTaps = 12;
-        const float barW = 5.0f;
-        const float step = (area.getWidth() - barW) / (numTaps - 1);
-        const float fb = juce::jlimit (0.05f, 1.0f, feedbackVal);
-        const float duckFactor = 1.0f - duckingVal * 0.4f;
-
-        // sweeping pulse, one tap per delay time
-        const double nowMs = juce::Time::getMillisecondCounterHiRes();
-        const double phase = std::fmod (nowMs / timeValueMs, static_cast<double>(numTaps));
-        const int activeTap = static_cast<int>(phase);
-        const float pulse = 1.0f - static_cast<float>(phase - activeTap);   // 1 -> 0 after each hit
-
-        for (int i = 0; i < numTaps; ++i)
-        {
-            const float level = std::pow (fb, static_cast<float>(i)) * (i > 0 ? duckFactor : 1.0f);
-            const float h = juce::jmax (1.5f, halfH * level);
-            const float x = area.getX() + i * step;
-
-            float top, bottom;
-            if (fbMode == 2)
+            if (isInteracting)
             {
-                const bool up = (i % 2 == 0);
-                top    = up ? midY - h : midY;
-                bottom = up ? midY     : midY + h;
-            }
-            else
-            {
-                top = midY - h;  bottom = midY + h;
-            }
-
-            const float boost = (i == activeTap) ? pulse : 0.0f;
-            g.setColour (lime.withAlpha (juce::jlimit (0.0f, 1.0f, 0.22f + 0.55f * level + 0.35f * boost)));
-            g.fillRoundedRectangle (x, top, barW, bottom - top, 1.0f);
-
-            if (boost > 0.05f)   // hot cap + glow on the active tap
-            {
-                g.setColour (juce::Colours::white.withAlpha (0.8f * boost));
-                g.fillRect (x, (fbMode == 2 && i % 2 == 1) ? bottom - 1.5f : top, barW, 1.5f);
-                g.setColour (lime.withAlpha (0.18f * boost));
-                g.fillRoundedRectangle (x - 2.0f, top - 2.0f, barW + 4.0f, bottom - top + 4.0f, 2.0f);
+                g.setColour (limeColor.withAlpha (0.45f));
+                g.strokePath (activeTrack, juce::PathStrokeType (6.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
             }
         }
 
-        // single hairline frame
-        g.setColour (lime.withAlpha (0.25f));
-        g.drawRoundedRectangle (bounds, 5.0f, 1.0f);
+        // 3. Inner Cap Body
+        const auto capRadius = radius - 6.0f;
+        const auto capX = centreX - capRadius;
+        const auto capY = centreY - capRadius;
+        const auto capW = capRadius * 2.0f;
+
+        g.setColour (isInteracting ? juce::Colour (0xff102408) : juce::Colour (0xff081204));
+        g.fillEllipse (capX, capY, capW, capW);
+
+        // Rim Border
+        g.setColour (isInteracting ? juce::Colour (0xff39ff14) : juce::Colour (0xff184a08));
+        g.drawEllipse (capX, capY, capW, capW, isInteracting ? 1.5f : 1.0f);
+
+        if (isInteracting)
+        {
+            g.setColour (juce::Colour (0xff39ff14).withAlpha (0.25f));
+            g.drawEllipse (capX - 1.5f, capY - 1.5f, capW + 3.0f, capW + 3.0f, 1.0f);
+        }
+
+        // 4. Indicator Needle
+        juce::Path p;
+        p.addRectangle (-1.25f, -capRadius + 2.0f, 2.5f, capRadius * 0.38f);
+        p.applyTransform (juce::AffineTransform::rotation (angle).translated (centreX, centreY));
+
+        g.setColour (isInteracting ? juce::Colour (0xffffffff) : juce::Colour (0xff39ff14));
+        g.fillPath (p);
+
+        // 5. Centered Value Readout (HOVER / TURN ONLY)
+        if (isInteracting)
+        {
+            juce::String valText = slider.getTextFromValue (slider.getValue());
+            float fontSize = juce::jlimit (9.0f, 13.0f, capRadius * 0.65f);
+
+            g.setFont (juce::FontOptions (fontSize).withStyle ("Bold"));
+            g.setColour (juce::Colour (0xffffffff));
+
+            juce::Rectangle<int> textBounds (juce::roundToInt (capX),
+                                             juce::roundToInt (capY),
+                                             juce::roundToInt (capW),
+                                             juce::roundToInt (capW));
+            g.drawText (valText, textBounds, juce::Justification::centred, false);
+        }
     }
 
-private:
-    void timerCallback() override { repaint(); }
+    void drawToggleButton (juce::Graphics& g, juce::ToggleButton& button,
+                           bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown) override
+    {
+        juce::ignoreUnused (shouldDrawButtonAsHighlighted, shouldDrawButtonAsDown);
 
-    float timeValueMs = 250.0f;
-    float feedbackVal = 0.5f;
-    float duckingVal = 0.0f;
-    int fbMode = 0;
+        auto bounds = button.getLocalBounds().toFloat();
+        auto boxSize = juce::jmin (bounds.getWidth(), bounds.getHeight());
+        auto boxRect = juce::Rectangle<float> ((bounds.getWidth() - boxSize) * 0.5f,
+                                               (bounds.getHeight() - boxSize) * 0.5f,
+                                               boxSize, boxSize).reduced (1.0f);
+
+        const bool isChecked = button.getToggleState();
+
+        g.setColour (juce::Colour (0xff050c03));
+        g.fillRoundedRectangle (boxRect, 3.0f);
+
+        g.setColour (isChecked ? juce::Colour (0xff39ff14) : juce::Colour (0xff155e05));
+        g.drawRoundedRectangle (boxRect, 3.0f, 1.5f);
+
+        if (isChecked)
+        {
+            auto fillRect = boxRect.reduced (3.0f);
+            g.setColour (juce::Colour (0xff39ff14));
+            g.fillRoundedRectangle (fillRect, 2.0f);
+
+            g.setColour (juce::Colour (0xff39ff14).withAlpha (0.35f));
+            g.drawRoundedRectangle (boxRect.expanded (1.5f), 4.0f, 1.0f);
+        }
+    }
+
+    // Segmented control: buttons joined via setConnectedEdges share one outline
+    void drawButtonBackground (juce::Graphics& g, juce::Button& button,
+                                const juce::Colour& backgroundColour,
+                                bool shouldDrawButtonAsHighlighted,
+                                bool shouldDrawButtonAsDown) override
+    {
+        juce::ignoreUnused (backgroundColour, shouldDrawButtonAsDown);
+
+        if (button.getProperties().contains ("flat"))   // text-only switches: no box at all
+        {
+            if (shouldDrawButtonAsHighlighted)
+            {
+                g.setColour (juce::Colour (0xff39ff14).withAlpha (0.08f));
+                g.fillRoundedRectangle (button.getLocalBounds().toFloat().reduced (1.0f), 4.0f);
+            }
+            return;
+        }
+
+        auto bounds = button.getLocalBounds().toFloat().reduced (0.5f);
+        const bool isActive = button.getToggleState();
+        const int edges = button.getConnectedEdgeFlags();
+        const bool l = (edges & juce::Button::ConnectedOnLeft)  == 0;
+        const bool r = (edges & juce::Button::ConnectedOnRight) == 0;
+
+        juce::Path shape;
+        shape.addRoundedRectangle (bounds.getX(), bounds.getY(), bounds.getWidth(), bounds.getHeight(),
+                                   4.0f, 4.0f, l, r, l, r);
+
+        if (isActive)
+            g.setColour (juce::Colour (0xff39ff14));
+        else
+            g.setColour (shouldDrawButtonAsHighlighted ? juce::Colour (0xff12280a) : juce::Colour (0xff091404));
+        g.fillPath (shape);
+
+        g.setColour (juce::Colour (0xff39ff14).withAlpha (0.3f));
+        g.strokePath (shape, juce::PathStrokeType (1.0f));
+    }
+
+    void drawButtonText (juce::Graphics& g, juce::TextButton& button,
+                        bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown) override
+    {
+        juce::ignoreUnused (shouldDrawButtonAsDown);
+
+        const bool isActive = button.getToggleState();
+
+        if (button.getProperties().contains ("flat"))
+        {
+            const bool isToggle = button.getClickingTogglesState() || button.getProperties().contains ("led");
+            const auto lime = juce::Colour (0xff39ff14);
+            const bool bright = isActive || ! isToggle;
+            auto c = bright ? lime : juce::Colour (0xff2a7a14);
+            if (shouldDrawButtonAsHighlighted) c = c.brighter (0.25f);
+
+            const float size = button.getProperties().contains ("big") ? 10.0f : 8.5f;
+            g.setColour (c);
+            g.setFont (juce::FontOptions (size).withStyle ("Bold"));
+            auto area = button.getLocalBounds();
+            g.drawText (button.getButtonText(), area, juce::Justification::centred, false);
+
+            if (isToggle && isActive)   // small glowing bar under the text
+            {
+                juce::GlyphArrangement ga;
+                ga.addLineOfText (juce::FontOptions (size).withStyle ("Bold"), button.getButtonText(), 0.0f, 0.0f);
+                const auto w = juce::jmin (static_cast<float> (area.getWidth()) - 6.0f,
+                                           ga.getBoundingBox (0, -1, true).getWidth() + 4.0f);
+                const auto bar = juce::Rectangle<float> (area.getCentreX() - w * 0.5f, static_cast<float> (area.getBottom()) - 3.0f, w, 1.5f);
+                g.setColour (lime.withAlpha (0.35f));
+                g.fillRoundedRectangle (bar.expanded (0.0f, 1.5f), 1.5f);
+                g.setColour (lime);
+                g.fillRoundedRectangle (bar, 0.75f);
+            }
+            return;
+        }
+
+        g.setColour (isActive ? juce::Colour (0xff040a02) : juce::Colour (0xff2ccb0f));
+        g.setFont (juce::FontOptions (8.0f).withStyle ("Bold"));
+        g.drawText (button.getButtonText(), button.getLocalBounds(), juce::Justification::centred, false);
+    }
 };
