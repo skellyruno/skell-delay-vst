@@ -41,6 +41,7 @@ target_sources(DelayPlugin
         Source/PluginProcessor.h
         Source/PluginProcessor.cpp
         Source/Presets.h
+        Source/GatePatterns.h
         Source/PluginEditor.h
         Source/PluginEditor.cpp
         Source/SkellLookAndFeel.h
