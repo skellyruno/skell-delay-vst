@@ -120,6 +120,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout DelayAudioProcessor::createP
     addBool ("MONO", "Mono", false);
 
     // ---- Output ----
+    addBool ("BYPASS", "Bypass", false);
+    addBool ("BBD", "BBD", false);
+    {
+        juce::StringArray gateNames;
+        for (const char* n : kGateNames) gateNames.add (n);
+        addChoice ("GATE", "Gate", gateNames, 0);
+    }
+    addFloat ("GATE_DEPTH", "Gate Depth", Range (0.0f, 1.0f, 0.01f), 1.0f);
     addFloat ("DUCKING", "Ducker", Range (0.0f, 1.0f, 0.01f), 0.0f);
     Range relRange (20.0f, 1000.0f, 1.0f);  relRange.setSkewForCentre (250.0f);
     addFloat ("DUCK_REL", "Ducker Release", relRange, 250.0f);
@@ -168,6 +176,102 @@ void DelayAudioProcessor::applyPreset (int index)
             r->setValueNotifyingHost (r->convertTo0to1 (v.value));
 
     apvts.state.setProperty ("preset", index, nullptr);
+    apvts.state.setProperty ("presetName", presets[static_cast<size_t> (index)].name, nullptr);
+    apvts.state.removeProperty ("userPreset", nullptr);
+}
+
+// ---------------------------------------------------------------- user presets (files on disk)
+namespace
+{
+    juce::File& userDirOverride() { static juce::File f; return f; }
+}
+
+void DelayAudioProcessor::setUserPresetDirectory (const juce::File& dir) { userDirOverride() = dir; }
+
+juce::File DelayAudioProcessor::getUserPresetDirectory()
+{
+    if (userDirOverride() != juce::File())
+        return userDirOverride();
+    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+               .getChildFile ("Skell-Delay").getChildFile ("Presets");
+}
+
+juce::Array<juce::File> DelayAudioProcessor::getUserPresetFiles() const
+{
+    juce::Array<juce::File> files;
+    const auto dir = getUserPresetDirectory();
+    if (dir.isDirectory())
+        files = dir.findChildFiles (juce::File::findFiles, true, "*.skellpreset");
+    std::sort (files.begin(), files.end(), [] (const juce::File& a, const juce::File& b)
+               { return a.getFullPathName().compareIgnoreCase (b.getFullPathName()) < 0; });
+    return files;
+}
+
+bool DelayAudioProcessor::saveUserPreset (const juce::String& nameWithCategory)
+{
+    auto parts = juce::StringArray::fromTokens (nameWithCategory, "/", "");
+    parts.trim();
+    parts.removeEmptyStrings();
+    if (parts.isEmpty())
+        return false;
+
+    const auto name = juce::File::createLegalFileName (parts[parts.size() - 1]);
+    if (name.isEmpty())
+        return false;
+
+    auto dir = getUserPresetDirectory();
+    if (parts.size() >= 2)
+        dir = dir.getChildFile (juce::File::createLegalFileName (parts[parts.size() - 2]));
+    if (! dir.createDirectory())
+        return false;
+
+    const auto file = dir.getChildFile (name + ".skellpreset");
+    const auto rel = file.getRelativePathFrom (getUserPresetDirectory()).replaceCharacter ('\\', '/');
+
+    auto tree = apvts.copyState();
+    tree.setProperty ("presetName", name, nullptr);
+    tree.setProperty ("userPreset", rel, nullptr);
+    std::unique_ptr<juce::XmlElement> xml (tree.createXml());
+    if (xml == nullptr || ! xml->writeTo (file))
+        return false;
+
+    apvts.state.setProperty ("presetName", name, nullptr);
+    apvts.state.setProperty ("userPreset", rel, nullptr);
+    return true;
+}
+
+bool DelayAudioProcessor::loadUserPreset (const juce::File& file)
+{
+    auto xml = juce::parseXML (file);
+    if (xml == nullptr || ! xml->hasTagName (apvts.state.getType()))
+        return false;
+
+    auto tree = juce::ValueTree::fromXml (*xml);
+    tree.setProperty ("presetName", file.getFileNameWithoutExtension(), nullptr);
+    tree.setProperty ("userPreset", file.getRelativePathFrom (getUserPresetDirectory()).replaceCharacter ('\\', '/'), nullptr);
+    apvts.replaceState (tree);
+    return true;
+}
+
+bool DelayAudioProcessor::deleteUserPreset (const juce::File& file)
+{
+    const auto rel = file.getRelativePathFrom (getUserPresetDirectory()).replaceCharacter ('\\', '/');
+    if (! file.deleteFile())
+        return false;
+    if (apvts.state.getProperty ("userPreset").toString() == rel)
+        apvts.state.removeProperty ("userPreset", nullptr);
+    return true;
+}
+
+juce::String DelayAudioProcessor::getCurrentPresetName()
+{
+    const auto n = apvts.state.getProperty ("presetName").toString();
+    return n.isNotEmpty() ? n : getProgramName (getCurrentProgram());
+}
+
+juce::String DelayAudioProcessor::getCurrentUserPresetPath() const
+{
+    return apvts.state.getProperty ("userPreset").toString();
 }
 
 void DelayAudioProcessor::selectABSlot (int slot)
@@ -226,6 +330,8 @@ void DelayAudioProcessor::snapSmoothers()
     smHiHz.setCurrentAndTargetValue (juce::jlimit (1000.0f, sr * 0.45f, param ("HICUT")));
     smRev.setCurrentAndTargetValue (param ("REVERSE") > 0.5f ? 1.0f : 0.0f);
     smShim.setCurrentAndTargetValue (param ("SHIMMER"));
+    smBypass.setCurrentAndTargetValue (param ("BYPASS") > 0.5f ? 1.0f : 0.0f);
+    smBBD.setCurrentAndTargetValue (param ("BBD") > 0.5f ? 1.0f : 0.0f);
 }
 
 void DelayAudioProcessor::clearState()
@@ -259,6 +365,8 @@ void DelayAudioProcessor::clearState()
 
     phaseWider = phaseRicher1 = phaseRicher2 = phaseSwirl = 0.0;
     for (int k = 0; k < 3; ++k) rndHeld[k] = rndSmooth[k] = 0.0f;
+    for (int c = 0; c < 2; ++c) bbdPre[c] = bbdPost1[c] = bbdPost2[c] = bbdHold[c] = 0.0f;
+    bbdCount = 0.0f;  bbdEnv = 0.0f;
     destinyCountdown = 0;
     envFast = envSlow = 0.0f;
     duckEnvelope = 0.0f;
@@ -274,6 +382,8 @@ void DelayAudioProcessor::reset()
 
     clearState();
     snapSmoothers();
+    gateBeats = 0.0;  gateGain = 1.0f;
+    killState = 0;    killGain = 1.0f;
     smoothDelayTime.setCurrentAndTargetValue ((computeDelayMs() / 1000.0f) * static_cast<float> (sampleRate));
 }
 
@@ -304,13 +414,16 @@ void DelayAudioProcessor::prepareToPlay (double sr, int samplesPerBlock)
     revL.assign (static_cast<size_t> (kMaxChunk), 0.0f);
     revR.assign (static_cast<size_t> (kMaxChunk), 0.0f);
     duckBuf.assign (static_cast<size_t> (kMaxChunk), 1.0f);
+    bypBuf.assign (static_cast<size_t> (kMaxChunk), 0.0f);
+    gateBeats = 0.0;  gateGain = 1.0f;
+    killState = 0;    killGain = 1.0f;
 
     for (auto& r : shimRing)
         r.assign (static_cast<size_t> (kShimRing), 0.0f);
     shimWin = static_cast<float> (juce::jmin (0.035 * sampleRate, 12000.0));
 
     for (auto* s : { &smDry, &smWet, &smFeedback, &smDucking, &smPan, &smTape, &smSwirl, &smSauce,
-                     &smWider, &smRicher, &smAttack, &smSustain, &smPing, &smSwap, &smLoHz, &smHiHz, &smRev, &smShim })
+                     &smWider, &smRicher, &smAttack, &smSustain, &smPing, &smSwap, &smLoHz, &smHiHz, &smRev, &smShim, &smBypass, &smBBD })
         s->reset (sampleRate, kParamRampSeconds);
 
     fadeTotal = juce::jmax (1, static_cast<int> (0.04 * sampleRate));   // 40 ms cross-fade for time jumps
@@ -408,6 +521,10 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const 
     smHiHz.setTargetValue     (juce::jlimit (1000.0f, sr * 0.45f, param ("HICUT")));
     smRev.setTargetValue      (param ("REVERSE") > 0.5f ? 1.0f : 0.0f);
     smShim.setTargetValue     (param ("SHIMMER"));
+    smBypass.setTargetValue   (param ("BYPASS") > 0.5f ? 1.0f : 0.0f);
+    smBBD.setTargetValue      (param ("BBD") > 0.5f ? 1.0f : 0.0f);
+    if (killPending.exchange (false) && killState == 0)
+        killState = 1;
     const float shimRatio = kShimRatio[juce::jlimit (0, kNumShimIntervals - 1, static_cast<int> (param ("SHIM_PITCH") + 0.5f))];
 
     // SMOOTH (0-100) = glide time in ms for small time changes. Only re-time the ramp when the
@@ -424,8 +541,13 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const 
     // Host tempo for sync mode (falls back to the last known / 120 bpm)
     if (auto* ph = getPlayHead())
         if (auto pos = ph->getPosition())
+        {
             if (auto bpm = pos->getBpm())
                 hostBpm = *bpm;
+            if (pos->getIsPlaying())
+                if (auto ppq = pos->getPpqPosition())
+                    gateBeats = *ppq;   // lock the gate to the song position while the host plays
+        }
 
     const float delayMs = computeDelayMs();
     effectiveDelayMs.store (delayMs);
@@ -502,6 +624,11 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const 
     // 5 Hz DC blocker in the loop: stops DC (or sub-sonic drift) building up at high feedback
     const float dcR = 1.0f - juce::MathConstants<float>::twoPi * 5.0f / sr;
 
+    // BBD detector / state
+    const float bbdEnvA = 1.0f - std::exp (-1.0f / (0.003f * sr));
+    const float bbdEnvR = 1.0f - std::exp (-1.0f / (0.080f * sr));
+    float bbdCoef = 1.0f, bbdHoldStep = 1.0f;
+
     // tape wow / flutter / drift (in the loop)
     const double incWow[2]  = { juce::MathConstants<double>::twoPi * 0.55 / sampleRate, juce::MathConstants<double>::twoPi * 0.63 / sampleRate };
     const double incFlut[2] = { juce::MathConstants<double>::twoPi * 6.3  / sampleRate, juce::MathConstants<double>::twoPi * 7.1  / sampleRate };
@@ -573,6 +700,9 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const 
         const float hiHz        = smHiHz.getNextValue();
         const float rev         = smRev.getNextValue();
         const float shimAmt     = smShim.getNextValue();
+        const float bbdMix      = smBBD.getNextValue();
+        const float byp         = smBypass.getNextValue();
+        bypBuf[static_cast<size_t> (i)] = byp;
 
         if ((i & 31) == 0)   // filter coefficients: refresh from the smoothed cutoffs every 32 samples
         {
@@ -593,6 +723,13 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const 
             const float tapeHz = 18000.0f * std::pow (0.3f, tapeAmt);
             tapeCoef = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * juce::jmin (tapeHz, sr * 0.45f) / sr);
             hissGain = 0.002f * tapeAmt * tapeAmt;
+
+            // BBD: 4096 stages clocked at N / 2T -> the longer the delay, the lower the bandwidth
+            const float tSec = juce::jmax (0.002f, smoothDelayTime.getCurrentValue() / sr);
+            const float bbdFs = 2048.0f / tSec;
+            bbdHoldStep = juce::jmax (1.0f, sr / bbdFs);
+            const float bbdHz = juce::jlimit (1500.0f, juce::jmin (16000.0f, sr * 0.45f), 0.4f * bbdFs);
+            bbdCoef = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * bbdHz / sr);
 
             loopDrive = 1.0f + tapeAmt;                                  // in-loop saturation: every repeat is squashed a bit more
             const float loopHz = 16000.0f * std::pow (0.4f, tapeAmt);   // ... and a bit darker
@@ -708,6 +845,34 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const 
             loopLp[0] = tapA;  loopLp[1] = tapB;
         }
 
+        if (bbdMix > 0.0f)   // BBD: anti-alias filter -> clock sample & hold -> reconstruction filter -> saturation + breathing noise
+        {
+            float* ch[2] = { &tapA, &tapB };
+            bbdCount += 1.0f;
+            const bool tick = bbdCount >= bbdHoldStep;
+            if (tick) bbdCount -= bbdHoldStep;
+
+            const float lvl = std::max (std::abs (tapA), std::abs (tapB));
+            bbdEnv += (lvl - bbdEnv) * (lvl > bbdEnv ? bbdEnvA : bbdEnvR);
+            const float noiseAmp = 0.0015f * (0.05f + 4.0f * bbdEnv);   // companding: the hiss swells with the signal
+
+            for (int c = 0; c < 2; ++c)
+            {
+                const float x = *ch[c];
+                bbdPre[c] += bbdCoef * (x - bbdPre[c]);
+                if (tick) bbdHold[c] = bbdPre[c];
+                bbdPost1[c] += bbdCoef * (bbdHold[c] - bbdPost1[c]);
+                bbdPost2[c] += bbdCoef * (bbdPost1[c] - bbdPost2[c]);
+                const float y = std::tanh (bbdPost2[c] * 1.4f) / 1.4f + (rng.nextFloat() * 2.0f - 1.0f) * noiseAmp;
+                *ch[c] = x * (1.0f - bbdMix) + y * bbdMix;
+            }
+        }
+        else
+        {
+            bbdPre[0] = bbdPost1[0] = bbdPost2[0] = bbdHold[0] = tapA;
+            bbdPre[1] = bbdPost1[1] = bbdPost2[1] = bbdHold[1] = tapB;
+        }
+
         tapA = loopLimit (tapA);
         tapB = loopLimit (tapB);
 
@@ -748,8 +913,9 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const 
         // is audible on any source. All routing changes are cross-faded (ping / swap), so switching
         // the mode while audio plays does not click.
         const float mid  = (inLeft + inRight) * 0.5f;
-        const float injA = inLeft * (1.0f - ping);
-        const float injB = inRight * (1.0f - ping) + mid * ping;
+        const float injGain = 1.0f - byp;   // bypass stops new sound entering the delay; the echoes in the loop ring out
+        const float injA = inLeft * (1.0f - ping) * injGain;
+        const float injB = (inRight * (1.0f - ping) + mid * ping) * injGain;
 
         const float fbA = fbSrcA * (1.0f - ping) + fbSrcB * ping;   // ping-pong feeds each line from the other
         const float fbB = fbSrcB * (1.0f - ping) + fbSrcA * ping;
@@ -827,11 +993,19 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const 
         reverb.processStereo (revL.data(), revR.data(), numSamples);
     }
 
-    // ================================================================ pass 2: Sauce -> Mono -> Pan -> Ducker -> levels
+    // ================================================================ pass 2: Sauce -> Mono -> Pan -> Ducker / Gate / Kill -> levels
+    const int gatePat = juce::jlimit (0, kNumGatePatterns - 1, static_cast<int> (param ("GATE") + 0.5f));
+    const std::uint16_t gateMask = kGateMasks[gatePat];
+    const float gateDepth = juce::jlimit (0.0f, 1.0f, param ("GATE_DEPTH"));
+    const double beatsPerSample = juce::jmax (20.0, hostBpm) / (60.0 * sampleRate);
+    const float gateCoef = 1.0f - std::exp (-1.0f / (0.002f * sr));
+    const float killStepOut = 1.0f / (0.010f * sr), killStepIn = 1.0f / (0.005f * sr);
+
     for (int i = 0; i < numSamples; ++i)
     {
         const size_t k = static_cast<size_t> (i);
-        const float dryVal   = smDry.getNextValue();
+        const float dryParam = smDry.getNextValue();
+        const float dryVal   = dryParam + (1.0f - dryParam) * bypBuf[k];   // bypassed: dry passes at unity
         const float wetVal   = smWet.getNextValue();
         const float panVal   = smPan.getNextValue();
         const float sauceAmt = smSauce.getNextValue();
@@ -852,7 +1026,17 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const 
         const float panGainL = panVal > 0.0f ? 1.0f - panVal : 1.0f;
         const float panGainR = panVal < 0.0f ? 1.0f + panVal : 1.0f;
 
-        const float wetGain = duckBuf[k] * wetVal;
+        // rhythmic gate on the echoes (locked to the host bar, free-running when stopped)
+        const double barPos = gateBeats * 0.25;
+        const int step = juce::jlimit (0, 15, static_cast<int> ((barPos - std::floor (barPos)) * 16.0));
+        gateGain += gateCoef * (((gateMask >> step) & 1u ? 1.0f : 1.0f - gateDepth) - gateGain);
+        gateBeats += beatsPerSample;
+
+        // kill: quick fade out, then the delay line is emptied at the end of the chunk, then a quick fade back in
+        if (killState == 1)      { killGain -= killStepOut;  if (killGain <= 0.0f) { killGain = 0.0f; killState = 2; } }
+        else if (killState == 3) { killGain += killStepIn;   if (killGain >= 1.0f) { killGain = 1.0f; killState = 0; } }
+
+        const float wetGain = duckBuf[k] * wetVal * gateGain * killGain;
         const float wetOutL = safetyLimit (wl * wetGain * panGainL);   // the limiter only ever sees the wet signal
         const float wetOutR = safetyLimit (wr * wetGain * panGainR);
 
@@ -871,6 +1055,16 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const 
 
         peakL = std::max (peakL, std::abs (outLeft));
         peakR = std::max (peakR, std::abs (outRight));
+    }
+
+    if (killState == 2)
+    {
+        clearState();      // wet output has been silent since the fade finished
+        killState = 3;
+    }
+    {
+        const double bp = gateBeats * 0.25;
+        gatePosition.store (static_cast<float> (bp - std::floor (bp)));
     }
 
     // Accumulate until the GUI reads (GUI resets via exchange), so short blocks don't hide peaks

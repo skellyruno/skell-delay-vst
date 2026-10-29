@@ -1,5 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
+#include "GatePatterns.h"
 
 // Level meter that follows the artwork's border channel: a vertical rail that flares inward at the
 // bottom, where the frame curves toward the skull. Boundary points were measured from the artwork
@@ -139,7 +140,12 @@ public:
     ~SkellDisplay() override { stopTimer(); }
 
     // Extra things the repeats show: tape wobble, reverb tail, reversed swell, shimmer markers
-    struct Extras { float tape = 0.0f, sauce = 0.0f, shimmer = 0.0f; bool reverse = false, shimUp = true; };
+    struct Extras { float tape = 0.0f, sauce = 0.0f, shimmer = 0.0f; bool reverse = false, shimUp = true;
+                    int gatePattern = 0; float gateDepth = 1.0f, gatePos = 0.0f; };
+
+    // click = next gate pattern, scroll = gate depth
+    std::function<void()> onClick;
+    std::function<void (float)> onWheel;
 
     void setParams (float timeMs, float feedback, float ducking, int newFbMode, const Extras& newExtras)
     {
@@ -159,6 +165,8 @@ public:
         g.fillRoundedRectangle (bounds, 5.0f);
 
         auto area = bounds.reduced (6.0f, 4.0f);
+        if (extras.gatePattern > 0)
+            area.removeFromBottom (6.0f);   // room for the gate steps
         const float midY = area.getCentreY();
         const float halfH = area.getHeight() * 0.5f;
 
@@ -264,14 +272,60 @@ public:
             }
         }
 
+        // gate: 16 steps along the bottom, the playhead step outlined
+        if (extras.gatePattern > 0)
+        {
+            const auto mask = kGateMasks[juce::jlimit (0, kNumGatePatterns - 1, extras.gatePattern)];
+            auto strip = bounds.reduced (6.0f, 0.0f).removeFromBottom (7.0f).withTrimmedBottom (3.0f);
+            const float cellW = strip.getWidth() / 16.0f;
+            const int playStep = juce::jlimit (0, 15, static_cast<int> (extras.gatePos * 16.0f));
+            for (int s = 0; s < 16; ++s)
+            {
+                const bool open = ((mask >> s) & 1u) != 0;
+                auto cell = juce::Rectangle<float> (strip.getX() + s * cellW + 0.5f, strip.getY(), cellW - 1.0f, strip.getHeight());
+                const float closedLevel = 0.10f + 0.5f * (1.0f - extras.gateDepth);
+                g.setColour (lime.withAlpha (open ? 0.75f : closedLevel));
+                g.fillRect (cell);
+                if (s == playStep)
+                {
+                    g.setColour (juce::Colours::white.withAlpha (0.9f));
+                    g.drawRect (cell.expanded (0.5f, 0.5f), 1.0f);
+                }
+            }
+        }
+
+        // a short label after a click: which gate pattern is selected
+        const double sinceChange = juce::Time::getMillisecondCounterHiRes() - lastChangeMs;
+        if (sinceChange < 1400.0)
+        {
+            g.setColour (lime.withAlpha (juce::jlimit (0.0f, 1.0f, static_cast<float> ((1400.0 - sinceChange) / 600.0))));
+            g.setFont (juce::FontOptions (8.0f).withStyle ("Bold"));
+            g.drawText (juce::String ("GATE ") + kGateNames[juce::jlimit (0, kNumGatePatterns - 1, extras.gatePattern)],
+                        getLocalBounds().reduced (7, 3), juce::Justification::topRight, false);
+        }
+
         // single hairline frame
-        g.setColour (lime.withAlpha (0.25f));
+        g.setColour (lime.withAlpha (isMouseOver() ? 0.5f : 0.25f));
         g.drawRoundedRectangle (bounds, 5.0f, 1.0f);
+    }
+
+    void mouseEnter (const juce::MouseEvent&) override { repaint(); }
+    void mouseExit (const juce::MouseEvent&) override { repaint(); }
+    void mouseDown (const juce::MouseEvent&) override
+    {
+        lastChangeMs = juce::Time::getMillisecondCounterHiRes();
+        if (onClick) onClick();
+    }
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w) override
+    {
+        lastChangeMs = juce::Time::getMillisecondCounterHiRes();
+        if (onWheel) onWheel (w.deltaY);
     }
 
 private:
     void timerCallback() override { repaint(); }
 
+    double lastChangeMs = -10000.0;
     Extras extras;
     float timeValueMs = 250.0f;
     float feedbackVal = 0.5f;

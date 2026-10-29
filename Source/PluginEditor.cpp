@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include <map>
 
 namespace
 {
@@ -107,6 +108,30 @@ DelayAudioProcessorEditor::DelayAudioProcessorEditor (DelayAudioProcessor& p)
     presetNext.onClick = [this]() { stepPreset (+1); };
     addAndMakeVisible (modCtl);
 
+    // BBD / KILL / BYPASS
+    bbdBtn.setClickingTogglesState (true);
+    bbdBtn.onClick = [this]() { setChoice ("BBD", bbdBtn.getToggleState() ? 1 : 0); };
+    bypassBtn.setClickingTogglesState (true);
+    bypassBtn.onClick = [this]() { setChoice ("BYPASS", bypassBtn.getToggleState() ? 1 : 0); };
+    killBtn.onClick = [this]() { audioProcessor.killEchoes(); };
+    for (auto* b : { &bbdBtn, &killBtn, &bypassBtn })
+    {
+        b->getProperties().set ("flat", true);
+        addAndMakeVisible (b);
+    }
+
+    // the readout doubles as the gate control: click = next pattern, scroll = depth
+    delayDisplay.onClick = [this]()
+    {
+        const int cur = static_cast<int> (audioProcessor.apvts.getRawParameterValue ("GATE")->load() + 0.5f);
+        setParamValue ("GATE", static_cast<float> ((cur + 1) % kNumGatePatterns));
+    };
+    delayDisplay.onWheel = [this] (float dy)
+    {
+        const float d = audioProcessor.apvts.getRawParameterValue ("GATE_DEPTH")->load();
+        setParamValue ("GATE_DEPTH", juce::jlimit (0.0f, 1.0f, d + dy * 0.5f));
+    };
+
     // feel: one button that cycles straight -> dotted -> triplet; only shown while tempo sync is on
     feelBtn.onClick = [this]()
     {
@@ -181,13 +206,39 @@ void DelayAudioProcessorEditor::refreshButtons()
     shimBtn.setButtonText (shimOn ? juce::String (kShimNames[pitchIdx]) : juce::String ("SHIM"));
     shimBtn.setToggleState (shimOn, juce::dontSendNotification);
 
-    presetBtn.setButtonText (audioProcessor.getProgramName (audioProcessor.getCurrentProgram()));
+    bbdBtn.setToggleState (audioProcessor.apvts.getRawParameterValue ("BBD")->load() > 0.5f, juce::dontSendNotification);
+    bypassBtn.setToggleState (audioProcessor.apvts.getRawParameterValue ("BYPASS")->load() > 0.5f, juce::dontSendNotification);
+
+    presetBtn.setButtonText (audioProcessor.getCurrentPresetName());
+}
+
+namespace
+{
+    juce::String relativePath (const juce::File& f)
+    {
+        return f.getRelativePathFrom (DelayAudioProcessor::getUserPresetDirectory()).replaceCharacter ('\\', '/');
+    }
 }
 
 void DelayAudioProcessorEditor::stepPreset (int delta)
 {
-    const int n = audioProcessor.getNumPrograms();
-    audioProcessor.setCurrentProgram ((audioProcessor.getCurrentProgram() + delta + n) % n);
+    // one list: the factory presets, then the user presets
+    const int nFactory = audioProcessor.getNumPrograms();
+    const auto files = audioProcessor.getUserPresetFiles();
+    const int total = nFactory + files.size();
+
+    int cur = audioProcessor.getCurrentProgram();
+    const auto userPath = audioProcessor.getCurrentUserPresetPath();
+    if (userPath.isNotEmpty())
+        for (int j = 0; j < files.size(); ++j)
+            if (relativePath (files[j]) == userPath)
+                cur = nFactory + j;
+
+    const int next = (cur + delta + total) % total;
+    if (next < nFactory)
+        audioProcessor.setCurrentProgram (next);
+    else
+        audioProcessor.loadUserPreset (files[next - nFactory]);
     refreshButtons();
 }
 
@@ -195,19 +246,98 @@ void DelayAudioProcessorEditor::showPresetMenu()
 {
     juce::PopupMenu menu;
     menu.setLookAndFeel (&skellLookAndFeel);
-    const int current = audioProcessor.getCurrentProgram();
-    for (int i = 0; i < audioProcessor.getNumPrograms(); ++i)
+
+    const int nFactory = audioProcessor.getNumPrograms();
+    const auto userPath = audioProcessor.getCurrentUserPresetPath();
+    const int current = userPath.isEmpty() ? audioProcessor.getCurrentProgram() : -1;
+    for (int i = 0; i < nFactory; ++i)
         menu.addItem (i + 1, audioProcessor.getProgramName (i), true, i == current);
 
+    const auto files = audioProcessor.getUserPresetFiles();
+    if (! files.isEmpty())
+    {
+        menu.addSeparator();
+        menu.addSectionHeader ("User");
+        std::map<juce::String, juce::PopupMenu> categories;
+        for (int j = 0; j < files.size(); ++j)
+        {
+            const auto rel = relativePath (files[j]);
+            const bool ticked = rel == userPath;
+            const auto name = files[j].getFileNameWithoutExtension();
+            if (rel.contains ("/"))
+                categories[rel.upToLastOccurrenceOf ("/", false, false)].addItem (1000 + j, name, true, ticked);
+            else
+                menu.addItem (1000 + j, name, true, ticked);
+        }
+        for (auto& entry : categories)
+        {
+            entry.second.setLookAndFeel (&skellLookAndFeel);
+            menu.addSubMenu (entry.first, entry.second);
+        }
+    }
+
+    menu.addSeparator();
+    menu.addItem (9000, "Save current as...");
+    if (! files.isEmpty())
+    {
+        juce::PopupMenu del;
+        del.setLookAndFeel (&skellLookAndFeel);
+        for (int j = 0; j < files.size(); ++j)
+            del.addItem (20000 + j, relativePath (files[j]).upToLastOccurrenceOf (".", false, false));
+        menu.addSubMenu ("Delete user preset", del);
+    }
+
+    juce::Component::SafePointer<DelayAudioProcessorEditor> safe (this);
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&presetBtn).withMinimumWidth (presetBtn.getWidth()),
-                        [this] (int result)
+                        [safe, files, nFactory] (int result)
                         {
-                            if (result > 0)
+                            if (safe == nullptr || result <= 0)
+                                return;
+                            auto& proc = safe->audioProcessor;
+                            if (result <= nFactory)
+                                proc.setCurrentProgram (result - 1);
+                            else if (result >= 20000 && result - 20000 < files.size())
                             {
-                                audioProcessor.setCurrentProgram (result - 1);
-                                refreshButtons();
+                                const auto file = files[result - 20000];
+                                juce::AlertWindow::showOkCancelBox (juce::MessageBoxIconType::WarningIcon, "Delete preset",
+                                                                    "Delete \"" + file.getFileNameWithoutExtension() + "\"?", "Delete", "Cancel", safe.getComponent(),
+                                                                    juce::ModalCallbackFunction::create ([safe, file] (int r)
+                                                                    {
+                                                                        if (r == 1 && safe != nullptr)
+                                                                        {
+                                                                            safe->audioProcessor.deleteUserPreset (file);
+                                                                            safe->refreshButtons();
+                                                                        }
+                                                                    }));
                             }
+                            else if (result == 9000)
+                                safe->showSaveDialog();
+                            else if (result >= 1000 && result - 1000 < files.size())
+                                proc.loadUserPreset (files[result - 1000]);
+                            safe->refreshButtons();
                         });
+}
+
+void DelayAudioProcessorEditor::showSaveDialog()
+{
+    auto* w = new juce::AlertWindow ("Save preset", "Name (use Category/Name to put it in a folder):",
+                                     juce::MessageBoxIconType::NoIcon, this);
+    auto suggestion = audioProcessor.getCurrentUserPresetPath().upToLastOccurrenceOf (".", false, false);
+    if (suggestion.isEmpty())
+        suggestion = audioProcessor.getCurrentPresetName();
+    w->addTextEditor ("name", suggestion);
+    w->addButton ("Save", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    w->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+
+    juce::Component::SafePointer<DelayAudioProcessorEditor> safe (this);
+    w->enterModalState (true, juce::ModalCallbackFunction::create ([safe, w] (int r)
+    {
+        if (r == 1 && safe != nullptr)
+        {
+            safe->audioProcessor.saveUserPreset (w->getTextEditorContents ("name"));
+            safe->refreshButtons();
+        }
+    }), true);
 }
 
 void DelayAudioProcessorEditor::applyTimeMode (bool sync)
@@ -272,6 +402,9 @@ void DelayAudioProcessorEditor::timerCallback()
     extras.shimmer = pv ("SHIMMER");
     extras.shimUp = pv ("SHIM_PITCH") < 1.5f;   // +12 / +7 climb, -12 / -7 fall
     extras.reverse = pv ("REVERSE") > 0.5f;
+    extras.gatePattern = static_cast<int> (pv ("GATE") + 0.5f);
+    extras.gateDepth = pv ("GATE_DEPTH");
+    extras.gatePos = audioProcessor.getGatePosition();
     delayDisplay.setParams (audioProcessor.getEffectiveDelayMs(),
                             static_cast<float> (feedback.slider.getValue()),
                             static_cast<float> (ducking.slider.getValue()),
@@ -315,27 +448,31 @@ void DelayAudioProcessorEditor::resized()
     placeKnob (dry,      590, smallTop, small);
     placeKnob (wet,      642, smallTop, small);
 
-    // centre column: preset, a compact readout, two quiet rows of text switches
+    // centre column: preset, a compact readout (also the gate control), three rows of text switches
     const int cx = 302, cw = 120;
-    presetPrev.setBounds (cx,            76, 18, 16);
-    presetBtn.setBounds  (cx + 18,       76, cw - 36, 16);
-    presetNext.setBounds (cx + cw - 18,  76, 18, 16);
+    presetPrev.setBounds (cx,            71, 18, 16);
+    presetBtn.setBounds  (cx + 18,       71, cw - 36, 16);
+    presetNext.setBounds (cx + cw - 18,  71, 18, 16);
 
-    delayDisplay.setBounds (cx + 8, 98, cw - 16, 32);
+    delayDisplay.setBounds (cx + 8, 91, cw - 16, 32);
 
     const int bw = cw / 4;
-    syncBtn.setBounds (cx,          138, bw, 16);
-    pingBtn.setBounds (cx + bw,     138, bw, 16);
-    revBtn.setBounds  (cx + 2 * bw, 138, bw, 16);
-    shimBtn.setBounds (cx + 3 * bw, 138, bw, 16);
+    syncBtn.setBounds (cx,          129, bw, 16);
+    pingBtn.setBounds (cx + bw,     129, bw, 16);
+    revBtn.setBounds  (cx + 2 * bw, 129, bw, 16);
+    shimBtn.setBounds (cx + 3 * bw, 129, bw, 16);
 
     if (feelBtn.isVisible())   // tempo sync on: feel on the left, modulation on the right
     {
-        feelBtn.setBounds (cx,      158, 58, 16);
-        modCtl.setBounds  (cx + 62, 158, 58, 16);
+        feelBtn.setBounds (cx,      147, 58, 16);
+        modCtl.setBounds  (cx + 62, 147, 58, 16);
     }
     else
     {
-        modCtl.setBounds (cx + 31, 158, 58, 16);
+        modCtl.setBounds (cx + 31, 147, 58, 16);
     }
+
+    bbdBtn.setBounds    (cx,       165, 40, 16);
+    killBtn.setBounds   (cx + 40,  165, 40, 16);
+    bypassBtn.setBounds (cx + 80,  165, 40, 16);
 }

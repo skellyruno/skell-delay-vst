@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "GatePatterns.h"
 
 // Tempo-synced note values (beats = quarter notes). The FEEL parameter then makes them
 // straight, dotted or triplet - same scheme as Comeback Kid.
@@ -54,6 +55,25 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
+    // Soft bypass: the input stops feeding the delay and the dry signal passes at unity, but the echoes already
+    // in the loop ring out. Hosts see this as the plugin's bypass parameter.
+    juce::AudioProcessorParameter* getBypassParameter() const override { return apvts.getParameter ("BYPASS"); }
+
+    // Kill: fades the echoes out over 10 ms, empties the delay line, and lets new input in again
+    void killEchoes() { killPending.store (true); }
+
+    // User presets (files on disk). A name may contain one "/" to put it in a category folder.
+    static void setUserPresetDirectory (const juce::File& dir);
+    static juce::File getUserPresetDirectory();
+    juce::Array<juce::File> getUserPresetFiles() const;
+    bool saveUserPreset (const juce::String& nameWithCategory);
+    bool loadUserPreset (const juce::File& file);
+    bool deleteUserPreset (const juce::File& file);
+    juce::String getCurrentPresetName();          // factory or user preset currently loaded
+    juce::String getCurrentUserPresetPath() const;  // relative path, empty when a factory preset is loaded
+
+    float getGatePosition() const { return gatePosition.load(); }   // 0..1 across the gate's bar, for the readout
+
     // Factory presets are exposed as host programs. The current one is stored in the plugin state.
     void applyPreset (int index);
 
@@ -101,7 +121,7 @@ private:
 
     // Per-parameter smoothing (no zipper noise / clicks when a knob or automation moves)
     Smoother smDry, smWet, smFeedback, smDucking, smPan, smTape, smSwirl, smSauce,
-             smWider, smRicher, smAttack, smSustain, smPing, smSwap, smLoHz, smHiHz, smRev, smShim;
+             smWider, smRicher, smAttack, smSustain, smPing, smSwap, smLoHz, smHiHz, smRev, smShim, smBypass, smBBD;
 
     // Reverse: two read heads sweep backwards through the last N ms, hann-windowed and offset by half a segment
     double revPhase[2] { 0.0, 0.5 };
@@ -118,6 +138,20 @@ private:
     int shimWrite = 0;
     float shimPhase = 0.0f;
     float shimWin = 1500.0f;
+
+    // BBD (bucket-brigade) emulation, in the loop: the clock rate falls as the delay gets longer, so the
+    // repeats get darker, grittier and noisier the longer the time
+    float bbdPre[2] { 0.0f, 0.0f }, bbdPost1[2] { 0.0f, 0.0f }, bbdPost2[2] { 0.0f, 0.0f }, bbdHold[2] { 0.0f, 0.0f };
+    float bbdCount = 0.0f, bbdEnv = 0.0f;
+
+    // Kill / bypass / gate
+    std::atomic<bool> killPending { false };
+    int killState = 0;            // 0 idle, 1 fading out, 2 silent (clear at the end of the chunk), 3 fading back in
+    float killGain = 1.0f;
+    std::vector<float> bypBuf;
+    double gateBeats = 0.0;
+    float gateGain = 1.0f;
+    std::atomic<float> gatePosition { 0.0f };
 
     juce::ValueTree abState[2];
     int abActive = 0;

@@ -36,6 +36,7 @@ private:
 
     void showPresetMenu();
     void stepPreset (int delta);
+    void showSaveDialog();
 
     void setSync (bool shouldSync);
     void applyTimeMode (bool sync);   // re-points the TIME knob at ms (free) or note value (sync)
@@ -57,6 +58,7 @@ private:
     juce::TextButton pingBtn { "PING" };
     juce::TextButton feelBtn { "STR" };   // cycles straight / dotted / triplet (sync only)
 
+    juce::TextButton bbdBtn { "BBD" }, killBtn { "KILL" }, bypassBtn { "BYPASS" };
     juce::TextButton revBtn { "REV" };
     juce::TextButton shimBtn { "SHIM" };
     juce::TextButton presetPrev { "<" }, presetBtn { "Init" }, presetNext { ">" };

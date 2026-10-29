@@ -82,6 +82,14 @@ inline const std::vector<Preset>& getFactoryPresets()
             { "DELAY_TIME", 28.0f }, { "FEEDBACK", 0.0f }, { "WIDER", 0.5f }, { "RICHER", 0.4f },
             { "WET", 0.5f } } },
 
+        { "Analog BBD", {
+            { "DELAY_TIME", 300.0f }, { "FEEDBACK", 0.5f }, { "BBD", 1.0f }, { "TAPE", 0.2f }, { "LOCUT", 100.0f },
+            { "RICHER", 0.25f }, { "WET", 0.5f } } },
+
+        { "Gated Echo", {
+            { "SYNC", 1.0f }, { "SYNC_DIV", 3.0f }, { "FEEDBACK", 0.6f }, { "GATE", 5.0f }, { "GATE_DEPTH", 1.0f },
+            { "HICUT", 9000.0f }, { "SAUCE", 0.25f }, { "WET", 0.55f } } },
+
         { "Runaway Dream", {
             { "DELAY_TIME", 800.0f }, { "FEEDBACK", 0.9f }, { "LOCUT", 150.0f }, { "HICUT", 4000.0f },
             { "TAPE", 0.4f }, { "DUCKING", 0.5f }, { "SAUCE", 0.3f }, { "WET", 0.5f } } },
