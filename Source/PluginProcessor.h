@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include "GatePatterns.h"
+#include "OnsetDetector.h"
 
 // Tempo-synced note values (beats = quarter notes). The FEEL parameter then makes them
 // straight, dotted or triplet - same scheme as Comeback Kid.
@@ -14,6 +15,17 @@ inline constexpr int kNumSyncDivisions = static_cast<int> (sizeof (kSyncDivision
 inline constexpr int kDefaultSyncDivision = 3;   // 1/8
 
 inline constexpr float kFeelMultiplier[] = { 1.0f, 1.5f, 2.0f / 3.0f };   // straight, dotted, triplet
+
+// Auto-pan: the echoes sweep left/right once per cycle, locked to the song (same clock as the gate)
+inline constexpr const char* kAutoPanNames[] = { "Off", "1/1", "1/2", "1/4", "1/8", "1/16" };
+inline constexpr double kAutoPanBeats[] = { 0.0, 4.0, 2.0, 1.0, 0.5, 0.25 };   // cycle length in quarter notes
+inline constexpr int kNumAutoPan = 6;
+inline constexpr const char* kRepeatNames[] = { "Off", "1", "2", "3", "4", "5", "6", "7", "8" };
+inline constexpr int kNumRepeats = 9;
+inline constexpr float kPocketLatencyMs = 40.0f, kPocketMaxNudgeMs = 30.0f, kPocketDetectMs = 2.0f;
+inline constexpr int kPocketRing = 32768;
+inline constexpr int kTeleRing = 1 << 17;
+inline constexpr float kElasticRefRate = 4.0f;   // onsets per second that count as 'neutral' delivery
 
 // Shimmer: pitch interval applied to the repeats as they are fed back
 inline constexpr const char* kShimNames[] = { "+12", "+7", "-12", "-7" };
@@ -72,7 +84,8 @@ public:
     juce::String getCurrentPresetName();          // factory or user preset currently loaded
     juce::String getCurrentUserPresetPath() const;  // relative path, empty when a factory preset is loaded
 
-    float getGatePosition() const { return gatePosition.load(); }   // 0..1 across the gate's bar, for the readout
+    float getGatePosition() const { return gatePosition.load(); }
+    float getAutoPanValue() const { return autoPanValue.load(); }   // current auto-pan offset (-1..1), for the readout   // 0..1 across the gate's bar, for the readout
 
     // Factory presets are exposed as host programs. The current one is stored in the plugin state.
     void applyPreset (int index);
@@ -81,15 +94,68 @@ public:
     void selectABSlot (int slot);
     int getABSlot() const { return abActive; }
 
+    // Pocket meter: timing of the latest vocal words vs the 1/16 grid (ms, negative = early); ago 0 = newest
+    float getPocketError (int ago) const { return pocketErr[static_cast<size_t> ((pocketCount.load() - 1 - ago) & 7)].load(); }
+    int getPocketCount() const { return pocketCount.load(); }
+    bool isHostPlaying() const { return hostPlaying.load(); }
+
+    // Echo trail: level (0..1, peak) and brightness (0 dark..1 bright) of the most recent repeats, one entry per delay period; ago 0 = newest
+    static constexpr int kTrail = 16;
+    float getTrailLevel (int ago) const { return trailLevel[static_cast<size_t> ((trailCount.load() - 1 - ago) & (kTrail - 1))].load(); }
+    float getTrailTone  (int ago) const { return trailTone [static_cast<size_t> ((trailCount.load() - 1 - ago) & (kTrail - 1))].load(); }
+    int   getTrailCount() const { return trailCount.load(); }
+
+    // Plain-language state of the smart features, so the interface can say why one is not doing anything.
+    // feature: 0 Elastic, 1 Telepathy, 2 Pocket. 'problem' is set when the user should do or change something.
+    struct SmartStatus { juce::String text; bool problem = false; };
+    SmartStatus getSmartStatus (int feature) const;
+
+    // Delay time (ms) that matches how the performer is playing right now (0 = nothing recent to learn from) - for LEARN
+    float getLearnedIntervalMs() const { return learnedMs.load(); }
+
     float getLeftLevel();   // returns peak since last call
     float getRightLevel();
 
     // Actual delay time in use (ms), whether free or tempo-synced - for the GUI
     float getEffectiveDelayMs() const { return effectiveDelayMs.load(); }
 
+    // One searchable preset (factory or a file on disk)
+    struct PresetEntry
+    {
+        juce::String name, tags, key;     // key: "F:<name>" or "U:<relative path>" - what favourites are stored under
+        bool user = false;
+        int factoryIndex = -1;
+        juce::File file;
+    };
+    std::vector<PresetEntry> getPresetEntries() const;
+    void loadPresetEntry (const PresetEntry& e);
+    static bool isFavourite (const juce::String& key);
+    static void setFavourite (const juce::String& key, bool on);
+
+    // Randomise within musical limits: every value is drawn from a safe range (feedback never runs away, wet stays audible...)
+    // and moved only 'amount' (0..1) of the way there. Time and the dry/wet mix can be held.
+    void randomise (float amount, bool keepTime, bool keepMix);
+
+    // Interface settings that travel with the plugin state
+    int  getUiWidth() const;           void setUiWidth (int w);
+    bool getHighContrast() const;      void setHighContrast (bool on);
+    bool getHintSeen() const;          void setHintSeen (bool on);
+    bool getLargeText() const;         void setLargeText (bool on);
+
+    static constexpr int kStateVersion = 2;     // 1: before Elastic/Pocket/Telepathy/Ecology/Grain/Spectral... 2: current (+ UI settings)
+
+    juce::UndoManager undoManager;     // must be declared before apvts
+    // Starts a new undo step. First records any parameter change the host-sync timer has not copied into the state yet,
+    // so it lands in the step it belongs to (the previous one) and not in this one.
+    void newUndoStep (const juce::String& name = {});
+    void syncStateToTree();
+
     juce::AudioProcessorValueTreeState apvts;
 
 private:
+    void applyTree (const juce::ValueTree& tree);   // sets every parameter from a saved state (undoable, unlike replaceState)
+    juce::ValueTree uiTree() const;
+
     using Smoother = juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear>;
 
     // Hosts may hand over any block size; it is processed in chunks of at most this many samples
@@ -150,8 +216,53 @@ private:
     float killGain = 1.0f;
     std::vector<float> bypBuf;
     double gateBeats = 0.0;
+    float repeatTimer = 0.0f, repeatGate = 1.0f, hissEnv = 0.0f;
+    float elasticMul = 1.0f, elasticRate = kElasticRefRate, elFast = 0.0f, elSlow = 0.0f;
+    float elFastA = 0.0f, elFastR = 0.0f, elSlowA = 0.0f, elSlowR = 0.0f;
+    int elSince = 1000000000;
+    // Telepathy (rhythm prediction + pre-echo ghosts) and Echo Ecology (per-repeat genomes)
+    std::vector<float> teleRing[2];
+    int teleWrite = 0, teleGhostLen = 0, teleGhostPos = -1, teleCurCount = 0, telePrevCount = 0;
+    long long teleClock = 0, teleGhostStart = 0, telePredT = 0;
+    bool telePending = false;
+    float teleCur[16] {}, telePrev[16] {}, teleLp[2] {}, teleTrust = 0.5f, telePredIoi = 0.0f, teleGhostD0 = 0.0f;
+    int ecoCount = 0, ecoWake = 0;
+    float ecoGain = 1.0f, ecoGainT = 1.0f, ecoCoef = 1.0f, ecoCoefT = 1.0f, ecoVel = 0.0f, ecoOff = 0.0f, ecoAct = 0.0f, ecoLp[2] {};
+    // Onset detection (spectral flux) for Elastic / Telepathy / Pocket; flags are per sample of the current chunk
+    FluxOnsetDetector fluxEl, fluxPocket;
+    std::vector<unsigned char> fluxFlags;
+    std::vector<float> monoBuf;
+    std::atomic<float> learnedMs { 0.0f };
+    std::atomic<int> sinceOnsetMs { 100000 }, teleLocked { 0 };      // for getSmartStatus
+    std::atomic<float> teleTrustShown { 0.5f }, elasticShown { 1.0f };
+    // Granular echoes (two overlapping grains per channel, random offset and slight pitch scatter per grain)
+    float grainPhase[2] { 0.0f, 0.5f }, grainOff[2][2] {}, grainRate[2][2] {};
+    // Spectral delay: complementary one-pole split, low band read later and high band earlier (or the reverse)
+    juce::dsp::LinkwitzRileyFilter<float> specLow[2], specHigh[2];
+    // Performance buttons: stutter (looped slice), tape stop (read head slows to a halt), reverse throw (one backwards swell)
+    std::vector<float> stutBuf[2];
+    int stutCap = 0, stutPos = 0, stutN = 0;
+    float stutMix = 0.0f;
+    float tsSpeed = 1.0f, tsOff = 0.0f, tsGain = 1.0f;
+    float rtPhase = 0.0f, rtLen = 0.0f;
+    bool rtActive = false, prevRevThrow = false;
+    // Echo trail telemetry
+    std::atomic<float> trailLevel[kTrail] {}, trailTone[kTrail] {};
+    std::atomic<int> trailCount { 0 };
+    float trailPeak = 0.0f, trailToneAcc = 1.0f;
+    int trailSamples = 0;
+    std::vector<float> pocketRing[2];
+    int pocketWrite = 0, pocketFade = 0, pocketQuiet = 0, chunkOffset = 0;
+    float pocketCur = 0.0f, pocketFrom = 0.0f, pocketFast = 0.0f;
+    bool pocketArmed = false;
+    std::atomic<bool> hostPlaying { false };
+    std::atomic<float> pocketErr[8] {};
+    std::atomic<int> pocketCount { 0 };
     float gateGain = 1.0f;
     std::atomic<float> gatePosition { 0.0f };
+    float apDepthSmooth = 0.0f, apRndHeld = 0.0f, apRndSmooth = 0.0f;
+    long long apCycleIdx = -1;
+    std::atomic<float> autoPanValue { 0.0f };
 
     juce::ValueTree abState[2];
     int abActive = 0;

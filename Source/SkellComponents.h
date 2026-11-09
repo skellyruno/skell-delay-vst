@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include "GatePatterns.h"
+#include "SkellUi.h"
 
 // Level meter that follows the artwork's border channel: a vertical rail that flares inward at the
 // bottom, where the frame curves toward the skull. Boundary points were measured from the artwork
@@ -133,7 +134,7 @@ private:
 // real delay time so you can see the tempo of the echoes.
 //   Normal / Inverted : mirrored bars about the centre line
 //   Ping Pong         : repeats alternate up (L) / down (R)
-class SkellDisplay : public juce::Component, private juce::Timer
+class SkellDisplay : public juce::Component, public juce::SettableTooltipClient, private juce::Timer
 {
 public:
     SkellDisplay() { startTimerHz (30); }
@@ -141,7 +142,10 @@ public:
 
     // Extra things the repeats show: tape wobble, reverb tail, reversed swell, shimmer markers
     struct Extras { float tape = 0.0f, sauce = 0.0f, shimmer = 0.0f; bool reverse = false, shimUp = true;
-                    int gatePattern = 0; float gateDepth = 1.0f, gatePos = 0.0f; };
+                    int gatePattern = 0; float gateDepth = 1.0f, gatePos = 0.0f;
+                    bool autoPan = false; float autoPanPos = 0.0f;
+                    int repeats = 0; float decayMs = 0.0f;
+                    bool pocketOn = false, pocketPlaying = false; int pocketN = 0; float pocket[8] = {}; };   // pocket[0] = newest word, ms   // decayMs < 0 = never dies out
 
     // click = next gate pattern, scroll = gate depth
     std::function<void()> onClick;
@@ -163,6 +167,40 @@ public:
 
         g.setColour (juce::Colour (0xff040a03));
         g.fillRoundedRectangle (bounds, 5.0f);
+
+        if (extras.pocketOn)   // pocket meter: one dot per recent word, left = early, right = late
+        {
+            auto pa = bounds.reduced (8.0f, 4.0f);
+            const float cxp = pa.getCentreX(), halfW = pa.getWidth() * 0.5f, rangeMs = 50.0f;
+            g.setColour (lime.withAlpha (0.10f));
+            g.fillRect (cxp - halfW * 8.0f / rangeMs, pa.getY(), halfW * 16.0f / rangeMs, pa.getHeight());   // "in the pocket" +-8 ms
+            g.setColour (lime.withAlpha (0.35f));
+            g.drawVerticalLine (juce::roundToInt (cxp), pa.getY(), pa.getBottom());
+            const int n = juce::jmin (8, extras.pocketN);
+            float sum = 0.0f;
+            for (int k = 0; k < n; ++k)
+            {
+                const float e = extras.pocket[k];
+                sum += e;
+                const float x = cxp + juce::jlimit (-rangeMs, rangeMs, e) / rangeMs * halfW;
+                const float y = pa.getY() + (static_cast<float> (k) + 0.5f) * pa.getHeight() / 8.0f;
+                const float a = 1.0f - 0.09f * static_cast<float> (k);
+                g.setColour ((std::abs (e) <= 8.0f ? lime : lime.withMultipliedSaturation (0.7f).darker (0.15f)).withAlpha (a));
+                g.fillEllipse (x - 2.2f, y - 2.2f, 4.4f, 4.4f);
+            }
+            g.setFont (juce::FontOptions (8.0f).withStyle ("Bold"));
+            g.setColour (lime.withAlpha (0.55f));
+            if (! extras.pocketPlaying)
+                g.drawText ("PLAY HOST", getLocalBounds(), juce::Justification::centred, false);
+            else if (n > 0)
+            {
+                const int avg = juce::roundToInt (sum / static_cast<float> (n));
+                g.drawText ((avg > 0 ? "+" : "") + juce::String (avg) + "ms", getLocalBounds().reduced (7, 3), juce::Justification::topRight, false);
+            }
+            g.setColour (lime.withAlpha (0.35f));
+            g.drawRoundedRectangle (bounds, 5.0f, 1.0f);
+            return;
+        }
 
         auto area = bounds.reduced (6.0f, 4.0f);
         if (extras.gatePattern > 0)
@@ -188,6 +226,8 @@ public:
 
         for (int i = 0; i < numTaps; ++i)
         {
+            if (extras.repeats > 0 && i > extras.repeats)   // limited repeats: nothing after the last echo
+                break;
             const float tapeFade = 1.0f - 0.4f * extras.tape * static_cast<float> (i) / static_cast<float> (numTaps);
             const float level = std::pow (fb, static_cast<float>(i)) * (i > 0 ? duckFactor : 1.0f) * tapeFade;
             const float h = juce::jmax (1.5f, halfH * level);
@@ -294,8 +334,30 @@ public:
             }
         }
 
+        // auto-pan: a dot gliding along the top edge shows where the echoes are in the stereo field
+        if (extras.autoPan)
+        {
+            const float trackY = bounds.getY() + 2.5f;
+            const float half = (bounds.getWidth() - 16.0f) * 0.5f;
+            g.setColour (lime.withAlpha (0.18f));
+            g.drawHorizontalLine (juce::roundToInt (trackY), bounds.getCentreX() - half, bounds.getCentreX() + half);
+            g.setColour (lime.withAlpha (0.9f));
+            g.fillEllipse (bounds.getCentreX() + juce::jlimit (-1.0f, 1.0f, extras.autoPanPos) * half - 1.8f, trackY - 1.8f, 3.6f, 3.6f);
+        }
+
         // a short label after a click: which gate pattern is selected
         const double sinceChange = juce::Time::getMillisecondCounterHiRes() - lastChangeMs;
+        if (sinceChange >= 1400.0 && extras.decayMs != 0.0f)   // otherwise a quiet decay time (to -60 dB)
+        {
+            juce::String txt;
+            if (extras.decayMs < 0.0f)               txt = "INF";
+            else if (extras.decayMs < 1000.0f)       txt = juce::String (juce::roundToInt (extras.decayMs)) + "ms";
+            else if (extras.decayMs < 10000.0f)      txt = juce::String (extras.decayMs / 1000.0f, 1) + "s";
+            else                                     txt = juce::String (juce::roundToInt (extras.decayMs / 1000.0f)) + "s";
+            g.setColour (lime.withAlpha (0.55f));
+            g.setFont (juce::FontOptions (8.0f).withStyle ("Bold"));
+            g.drawText (txt, getLocalBounds().reduced (7, 3), juce::Justification::topRight, false);
+        }
         if (sinceChange < 1400.0)
         {
             g.setColour (lime.withAlpha (juce::jlimit (0.0f, 1.0f, static_cast<float> ((1400.0 - sinceChange) / 600.0))));
@@ -337,7 +399,7 @@ private:
 // --- Modulation control for Wider / Richer ------------------------------------------------
 // Click = cycle the LFO shape (sine / triangle / random). Drag up/down or scroll = rate (0.1x - 8x).
 // The icon shows the shape with a dot running at the real speed. It is dimmed while Wider and Richer are both 0.
-class SkellModControl : public juce::Component
+class SkellModControl : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     explicit SkellModControl (juce::AudioProcessorValueTreeState& s) : apvts (s) {}
@@ -452,4 +514,86 @@ private:
     bool dragged = false;
     int startY = 0;
     float startRate = 1.0f;
+};
+
+// ---------------------------------------------------------------------------------------------
+// Echo trail: the level and brightness of the repeats as they arrive, one bar per delay period (oldest left, newest right).
+// Bars get darker (amber) as the echoes age or are filtered; an x marks a repeat that died.
+class SkellTrail : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    static constexpr int N = 16;
+
+    void setData (const float* lvl, const float* tone, float delayMs_)
+    {
+        bool same = std::abs (delayMs_ - delayMs) < 0.5f;
+        for (int i = 0; i < N; ++i)
+        {
+            same = same && std::abs (lvl[i] - level[i]) < 0.002f && std::abs (tone[i] - bright[i]) < 0.01f;
+            level[i] = lvl[i];  bright[i] = tone[i];
+        }
+        delayMs = delayMs_;
+        if (! same) repaint();
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto lime = SkellUi::lime();
+        auto b = getLocalBounds().toFloat().reduced (0.5f);
+        g.setColour (juce::Colour (0xff040a03));
+        g.fillRoundedRectangle (b, 4.0f);
+        g.setColour (lime.withAlpha (SkellUi::highContrast ? 0.8f : 0.3f));
+        g.drawRoundedRectangle (b, 4.0f, 1.0f);
+
+        const float padL = 22.0f, padR = 8.0f, padT = 16.0f, padB = 14.0f;
+        const auto area = juce::Rectangle<float> (b.getX() + padL, b.getY() + padT, b.getWidth() - padL - padR, b.getHeight() - padT - padB);
+
+        g.setFont (juce::FontOptions (SkellUi::fit (8.0f)).withStyle ("Bold"));
+        g.setColour (SkellUi::dimText());
+        for (float db : { 0.0f, -20.0f, -40.0f })
+        {
+            const float y = area.getBottom() - area.getHeight() * (db + 60.0f) / 60.0f;
+            g.setColour (lime.withAlpha (db == 0.0f ? 0.18f : 0.09f));
+            g.drawHorizontalLine (juce::roundToInt (y), area.getX(), area.getRight());
+            g.setColour (SkellUi::dimText());
+            g.drawText (juce::String (juce::roundToInt (db)), juce::Rectangle<float> (b.getX() + 1.0f, y - 6.0f, padL - 3.0f, 12.0f), juce::Justification::centredRight, false);
+        }
+
+        const float slot = area.getWidth() / static_cast<float> (N), barW = juce::jmax (3.0f, slot * 0.62f);
+        for (int i = 0; i < N; ++i)
+        {
+            const float l = level[i];
+            const float x = area.getX() + slot * static_cast<float> (i) + (slot - barW) * 0.5f;
+            const float db = l > 1.0e-4f ? juce::jlimit (-60.0f, 0.0f, 20.0f * std::log10 (l)) : -60.0f;
+            const float h = area.getHeight() * (db + 60.0f) / 60.0f;
+            const auto dark = juce::Colour (0xffd9831f);
+            const auto c = dark.interpolatedWith (lime, juce::jlimit (0.0f, 1.0f, bright[i]));
+            if (h > 1.0f)
+            {
+                g.setColour (c.withAlpha (0.18f));
+                g.fillRoundedRectangle (x - 1.5f, area.getBottom() - h - 1.5f, barW + 3.0f, h + 3.0f, 2.5f);
+                g.setColour (c.withAlpha (0.45f + 0.5f * juce::jlimit (0.0f, 1.0f, l)));
+                g.fillRoundedRectangle (x, area.getBottom() - h, barW, h, 2.0f);
+            }
+            else if (i > 0 && level[i - 1] > 0.03f)   // a repeat that was there and is gone
+            {
+                g.setColour (juce::Colours::white.withAlpha (0.7f));
+                const float cx = x + barW * 0.5f, cy = area.getBottom() - 5.0f;
+                g.drawLine (cx - 3.0f, cy - 3.0f, cx + 3.0f, cy + 3.0f, 1.2f);
+                g.drawLine (cx - 3.0f, cy + 3.0f, cx + 3.0f, cy - 3.0f, 1.2f);
+            }
+        }
+
+        g.setFont (juce::FontOptions (SkellUi::fit (8.5f)).withStyle ("Bold"));
+        g.setColour (lime.withAlpha (0.85f));
+        g.drawText ("ECHO TRAIL", juce::Rectangle<float> (b.getX() + 8.0f, b.getY() + 2.0f, 90.0f, 13.0f), juce::Justification::centredLeft, false);
+        g.setColour (SkellUi::dimText());
+        g.drawText ("one bar per repeat  |  " + juce::String (juce::roundToInt (delayMs)) + " ms", juce::Rectangle<float> (b.getRight() - 190.0f, b.getY() + 2.0f, 182.0f, 13.0f), juce::Justification::centredRight, false);
+        g.drawText ("older", juce::Rectangle<float> (area.getX(), b.getBottom() - 13.0f, 50.0f, 12.0f), juce::Justification::centredLeft, false);
+        g.drawText ("newer", juce::Rectangle<float> (area.getRight() - 50.0f, b.getBottom() - 13.0f, 50.0f, 12.0f), juce::Justification::centredRight, false);
+    }
+
+private:
+    float level[N] {}, bright[N] {};
+    float delayMs = 0.0f;
 };

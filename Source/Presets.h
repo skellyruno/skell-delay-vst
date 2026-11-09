@@ -1,6 +1,8 @@
 #pragma once
 
 #include <vector>
+#include <string>
+#include <map>
 
 // Factory presets. Every parameter not listed in a preset is reset to its default first,
 // so each preset is a complete, predictable starting point.
@@ -90,9 +92,82 @@ inline const std::vector<Preset>& getFactoryPresets()
             { "SYNC", 1.0f }, { "SYNC_DIV", 3.0f }, { "FEEDBACK", 0.6f }, { "GATE", 5.0f }, { "GATE_DEPTH", 1.0f },
             { "HICUT", 9000.0f }, { "SAUCE", 0.25f }, { "WET", 0.55f } } },
 
+        { "Auto Pan Echo", {
+            { "SYNC", 1.0f }, { "SYNC_DIV", 3.0f }, { "FEEL", 1.0f }, { "FEEDBACK", 0.5f }, { "AUTOPAN", 3.0f },
+            { "AP_DEPTH", 0.9f }, { "HICUT", 9000.0f }, { "WET", 0.55f } } },
+
         { "Runaway Dream", {
             { "DELAY_TIME", 800.0f }, { "FEEDBACK", 0.9f }, { "LOCUT", 150.0f }, { "HICUT", 4000.0f },
             { "TAPE", 0.4f }, { "DUCKING", 0.5f }, { "SAUCE", 0.3f }, { "WET", 0.5f } } },
+
+        { "Grain Cloud", {
+            { "DELAY_TIME", 420.0f }, { "FEEDBACK", 0.55f }, { "GRAIN", 0.7f }, { "SAUCE", 0.4f }, { "WIDER", 0.4f },
+            { "HICUT", 7500.0f }, { "WET", 0.5f } } },
+
+        { "Spectral Fall", {
+            { "DELAY_TIME", 350.0f }, { "FEEDBACK", 0.55f }, { "SPECTRAL", 0.8f }, { "HICUT", 9000.0f }, { "WIDER", 0.3f },
+            { "WET", 0.5f } } },
+
+        // ---- vocal-focused set
+        { "Vocal Plate Slap", {
+            { "DELAY_TIME", 95.0f }, { "FEEDBACK", 0.2f }, { "HICUT", 7000.0f }, { "LOCUT", 200.0f }, { "WIDER", 0.3f }, { "WET", 0.25f } } },
+
+        { "Rap Elastic", {
+            { "DELAY_TIME", 250.0f }, { "FEEDBACK", 0.35f }, { "ELASTIC", 0.8f }, { "HICUT", 8000.0f }, { "LOCUT", 180.0f },
+            { "DUCKING", 0.5f }, { "WET", 0.3f } } },
+
+        { "Pocket Echo", {
+            { "DELAY_TIME", 375.0f }, { "FEEDBACK", 0.3f }, { "POCKET", 1.0f }, { "POCKET_AMT", 0.4f }, { "DUCKING", 0.4f },
+            { "HICUT", 8000.0f }, { "WET", 0.3f } } },
+
+        { "Telepathic Ghost", {
+            { "DELAY_TIME", 300.0f }, { "FEEDBACK", 0.35f }, { "TELEPATHY", 0.8f }, { "HICUT", 6500.0f }, { "SAUCE", 0.2f },
+            { "WET", 0.35f } } },
+
+        { "Hook Widener", {
+            { "DELAY_TIME", 190.0f }, { "FEEDBACK", 0.3f }, { "WIDER", 0.6f }, { "RICHER", 0.3f }, { "HICUT", 9000.0f },
+            { "WET", 0.3f } } },
+
+        { "Ducked Throw", {
+            { "DELAY_TIME", 420.0f }, { "FEEDBACK", 0.45f }, { "DUCKING", 0.8f }, { "DUCK_REL", 350.0f }, { "HICUT", 6000.0f },
+            { "LOCUT", 200.0f }, { "WET", 0.4f } } },
+
+        { "Dark Dub Vocal", {
+            { "DELAY_TIME", 500.0f }, { "FEEDBACK", 0.55f }, { "LOCUT", 250.0f }, { "HICUT", 3500.0f }, { "TAPE", 0.5f },
+            { "SWIRL", 0.2f }, { "WET", 0.35f } } },
+
+        { "Living Tail", {
+            { "DELAY_TIME", 380.0f }, { "FEEDBACK", 0.55f }, { "ECOLOGY", 0.6f }, { "HICUT", 7000.0f }, { "WET", 0.4f } } },
+
+        { "Glitch Vox", {
+            { "DELAY_TIME", 220.0f }, { "FEEDBACK", 0.5f }, { "GRAIN", 0.5f }, { "SPECTRAL", 0.3f }, { "HICUT", 9000.0f },
+            { "WET", 0.4f } } },
+
+        { "Whisper Verse", {
+            { "DELAY_TIME", 150.0f }, { "FEEDBACK", 0.25f }, { "HICUT", 5500.0f }, { "LOCUT", 300.0f }, { "TAPE", 0.3f },
+            { "WET", 0.2f } } },
     };
     return presets;
+}
+
+// Searchable tags for the preset browser (lower case, space separated). Unlisted names get none.
+inline const char* getFactoryPresetTags (const std::string& name)
+{
+    static const std::map<std::string, const char*> tags =
+    {
+        { "Init", "init" },                     { "Slapback", "clean vocal" },        { "Tape Echo", "tape vocal" },
+        { "Dotted Eighth", "rhythmic clean" },  { "Ping Pong Bounce", "rhythmic stereo" }, { "Triplet Ping Pong", "rhythmic stereo" },
+        { "Dub Echo", "dub tape" },             { "Vocal Ducker", "vocal clean" },    { "Space Echo", "space tape" },
+        { "Lo-Fi Crunch", "lo-fi" },            { "Ambient Wash", "space ambient" },  { "Shimmer Cloud", "space ambient shimmer" },
+        { "Fifth Rise", "shimmer rhythmic" },   { "Haunted Drift", "creative space" }, { "Reverse Verb", "reverse space" },
+        { "Reverse Ping Pong", "reverse rhythmic" }, { "Doubler", "clean vocal" },    { "Analog BBD", "lo-fi tape" },
+        { "Gated Echo", "rhythmic creative" },  { "Auto Pan Echo", "rhythmic stereo" }, { "Runaway Dream", "creative ambient" },
+        { "Grain Cloud", "creative ambient" },  { "Spectral Fall", "creative space" },
+        { "Vocal Plate Slap", "vocal clean" },  { "Rap Elastic", "vocal rhythmic" },   { "Pocket Echo", "vocal rhythmic" },
+        { "Telepathic Ghost", "vocal creative" }, { "Hook Widener", "vocal clean" },   { "Ducked Throw", "vocal clean" },
+        { "Dark Dub Vocal", "vocal dub tape" },  { "Living Tail", "vocal creative" },  { "Glitch Vox", "vocal creative" },
+        { "Whisper Verse", "vocal lo-fi" }
+    };
+    const auto it = tags.find (name);
+    return it != tags.end() ? it->second : "";
 }

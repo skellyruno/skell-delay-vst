@@ -1,0 +1,13 @@
+THIRD-PARTY SOFTWARE IN SKELL DELAY
+
+JUCE (https://juce.com) - audio plug-in framework.
+  Used under: [ ] JUCE commercial licence (tier: ____ )   [ ] AGPLv3   <- fill in; see legal/README.md
+  Copyright (c) Raw Material Software Limited.
+
+VST3 SDK (https://github.com/steinbergmedia/vst3sdk), bundled with JUCE - used for the VST3 format.
+  VST is a registered trademark of Steinberg Media Technologies GmbH.
+  Check the current licence terms of the SDK version you build with.
+
+Audio Unit is a trademark of Apple Inc.
+
+No other third-party code, fonts or samples are included.

@@ -50,7 +50,7 @@ DelayAudioProcessor::DelayAudioProcessor()
                      #endif
                        ),
 #endif
-    apvts (*this, nullptr, "Parameters", createParameterLayout())
+    apvts (*this, &undoManager, "Parameters", createParameterLayout())
 {
 }
 
@@ -128,6 +128,27 @@ juce::AudioProcessorValueTreeState::ParameterLayout DelayAudioProcessor::createP
         addChoice ("GATE", "Gate", gateNames, 0);
     }
     addFloat ("GATE_DEPTH", "Gate Depth", Range (0.0f, 1.0f, 0.01f), 1.0f);
+    {
+        juce::StringArray apNames;
+        for (const char* n : kAutoPanNames) apNames.add (n);
+        addChoice ("AUTOPAN", "Auto Pan", apNames, 0);
+    }
+    addBool  ("POCKET", "Pocket Meter", false);
+    addFloat ("POCKET_AMT", "Pocket Nudge", Range (0.0f, 1.0f, 0.01f), 0.5f);
+    addFloat ("TELEPATHY", "Telepathy", Range (0.0f, 1.0f, 0.01f), 0.0f);
+    addFloat ("ECOLOGY", "Ecology", Range (0.0f, 1.0f, 0.01f), 0.0f);
+    addFloat ("ELASTIC", "Elastic", Range (0.0f, 1.0f, 0.01f), 0.0f);
+    addFloat ("GRAIN", "Grain", Range (0.0f, 1.0f, 0.01f), 0.0f);
+    addFloat ("SPECTRAL", "Spectral", Range (0.0f, 1.0f, 0.01f), 0.0f);
+    addBool  ("STUTTER", "Stutter", false);
+    addBool  ("TAPESTOP", "Tape Stop", false);
+    addBool  ("REVTHROW", "Reverse Throw", false);
+    addFloat ("AP_DEPTH", "Auto Pan Depth", Range (0.0f, 1.0f, 0.01f), 0.8f);
+    {
+        juce::StringArray repNames;
+        for (const char* n : kRepeatNames) repNames.add (n);
+        addChoice ("REPEATS", "Repeats", repNames, 0);
+    }
     addFloat ("DUCKING", "Ducker", Range (0.0f, 1.0f, 0.01f), 0.0f);
     Range relRange (20.0f, 1000.0f, 1.0f);  relRange.setSkewForCentre (250.0f);
     addFloat ("DUCK_REL", "Ducker Release", relRange, 250.0f);
@@ -166,6 +187,7 @@ void DelayAudioProcessor::applyPreset (int index)
     if (! juce::isPositiveAndBelow (index, static_cast<int> (presets.size())))
         return;
 
+    newUndoStep ("Preset");
     // start from the defaults so a preset never inherits leftovers from the previous one
     for (auto* p : getParameters())
         if (auto* r = dynamic_cast<juce::RangedAudioParameter*> (p))
@@ -175,9 +197,9 @@ void DelayAudioProcessor::applyPreset (int index)
         if (auto* r = apvts.getParameter (v.id))
             r->setValueNotifyingHost (r->convertTo0to1 (v.value));
 
-    apvts.state.setProperty ("preset", index, nullptr);
-    apvts.state.setProperty ("presetName", presets[static_cast<size_t> (index)].name, nullptr);
-    apvts.state.removeProperty ("userPreset", nullptr);
+    apvts.state.setProperty ("preset", index, &undoManager);
+    apvts.state.setProperty ("presetName", presets[static_cast<size_t> (index)].name, &undoManager);
+    apvts.state.removeProperty ("userPreset", &undoManager);
 }
 
 // ---------------------------------------------------------------- user presets (files on disk)
@@ -229,6 +251,7 @@ bool DelayAudioProcessor::saveUserPreset (const juce::String& nameWithCategory)
     const auto rel = file.getRelativePathFrom (getUserPresetDirectory()).replaceCharacter ('\\', '/');
 
     auto tree = apvts.copyState();
+    tree.removeChild (tree.getChildWithName ("UI"), nullptr);      // window size etc. belong to the instance, not the sound
     tree.setProperty ("presetName", name, nullptr);
     tree.setProperty ("userPreset", rel, nullptr);
     std::unique_ptr<juce::XmlElement> xml (tree.createXml());
@@ -249,7 +272,8 @@ bool DelayAudioProcessor::loadUserPreset (const juce::File& file)
     auto tree = juce::ValueTree::fromXml (*xml);
     tree.setProperty ("presetName", file.getFileNameWithoutExtension(), nullptr);
     tree.setProperty ("userPreset", file.getRelativePathFrom (getUserPresetDirectory()).replaceCharacter ('\\', '/'), nullptr);
-    apvts.replaceState (tree);
+    newUndoStep ("Preset");
+    applyTree (tree);
     return true;
 }
 
@@ -283,8 +307,187 @@ void DelayAudioProcessor::selectABSlot (int slot)
     abState[abActive] = apvts.copyState();
     abActive = slot;
     if (abState[slot].isValid())
-        apvts.replaceState (abState[slot].createCopy());
+    {
+        newUndoStep ("A/B");
+        applyTree (abState[slot]);
+    }
 }
+
+DelayAudioProcessor::SmartStatus DelayAudioProcessor::getSmartStatus (int feature) const
+{
+    SmartStatus st;
+    auto on = [this] (const char* id) { return apvts.getRawParameterValue (id)->load(); };
+    const int quietMs = sinceOnsetMs.load();
+    if (feature == 0)
+    {
+        if (on ("ELASTIC") <= 0.0f) return st;
+        const float mul = elasticShown.load();
+        if (quietMs > 3000)              { st.text = "waiting for you to play";  return st; }
+        if (mul <= 0.52f || mul >= 1.92f) { st.text = "at its limit: " + juce::String (mul, 2) + "x";  return st; }
+        st.text = "following: " + juce::String (mul, 2) + "x";
+    }
+    else if (feature == 1)
+    {
+        if (on ("TELEPATHY") <= 0.0f) return st;
+        if (quietMs > 3000)                { st.text = "waiting for a phrase";  return st; }
+        if (teleLocked.load() == 0)        { st.text = "learning your rhythm";  return st; }
+        if (teleTrustShown.load() < 0.35f) { st.text = "rhythm too loose: ghost is quiet";  st.problem = true;  return st; }
+        st.text = "predicting (" + juce::String (juce::roundToInt (teleTrustShown.load() * 100.0f)) + "% sure)";
+    }
+    else
+    {
+        if (on ("POCKET") <= 0.5f) return st;
+        if (! hostPlaying.load()) { st.text = "needs the host playing, with a tempo";  st.problem = true;  return st; }
+        if (quietMs > 3000)       { st.text = "listening for words";  return st; }
+        st.text = "last word " + juce::String (getPocketError (0), 0) + " ms";
+    }
+    return st;
+}
+
+void DelayAudioProcessor::syncStateToTree()
+{
+    for (auto* p : getParameters())
+        if (auto* r = dynamic_cast<juce::RangedAudioParameter*> (p))
+        {
+            auto child = apvts.state.getChildWithProperty ("id", r->paramID);
+            if (! child.isValid()) continue;
+            const float v = r->convertFrom0to1 (r->getValue());
+            if (! child.hasProperty ("value") || std::abs (static_cast<float> (static_cast<double> (child.getProperty ("value"))) - v) > 1.0e-6f)
+                child.setProperty ("value", v, &undoManager);
+        }
+}
+
+void DelayAudioProcessor::newUndoStep (const juce::String& name)
+{
+    syncStateToTree();
+    undoManager.beginNewTransaction (name);
+}
+
+void DelayAudioProcessor::applyTree (const juce::ValueTree& tree)
+{
+    for (auto* p : getParameters())
+        if (auto* r = dynamic_cast<juce::RangedAudioParameter*> (p))
+        {
+            const auto child = tree.getChildWithProperty ("id", r->paramID);
+            float v = r->convertFrom0to1 (r->getDefaultValue());
+            if (child.isValid() && child.hasProperty ("value"))
+            {
+                const auto raw = static_cast<float> (static_cast<double> (child.getProperty ("value")));
+                if (std::isfinite (raw)) v = raw;           // a damaged value falls back to the default
+            }
+            const auto range = r->getNormalisableRange();
+            v = juce::jlimit (juce::jmin (range.start, range.end), juce::jmax (range.start, range.end), v);
+            r->setValueNotifyingHost (r->convertTo0to1 (v));
+        }
+    for (const char* k : { "preset", "presetName", "userPreset" })
+    {
+        if (tree.hasProperty (k)) apvts.state.setProperty (k, tree.getProperty (k), &undoManager);
+        else                      apvts.state.removeProperty (k, &undoManager);
+    }
+}
+
+// ---------------------------------------------------------------- preset browser support
+std::vector<DelayAudioProcessor::PresetEntry> DelayAudioProcessor::getPresetEntries() const
+{
+    std::vector<PresetEntry> out;
+    const auto& presets = getFactoryPresets();
+    for (size_t i = 0; i < presets.size(); ++i)
+    {
+        PresetEntry e;
+        e.name = presets[i].name;
+        e.tags = juce::String (getFactoryPresetTags (presets[i].name));
+        e.key = "F:" + e.name;
+        e.factoryIndex = static_cast<int> (i);
+        out.push_back (e);
+    }
+    for (const auto& f : getUserPresetFiles())
+    {
+        PresetEntry e;
+        e.user = true;
+        e.file = f;
+        e.name = f.getFileNameWithoutExtension();
+        const auto rel = f.getRelativePathFrom (getUserPresetDirectory()).replaceCharacter ('\\', '/');
+        e.key = "U:" + rel;
+        e.tags = "user" + (rel.contains ("/") ? " " + rel.upToLastOccurrenceOf ("/", false, false).toLowerCase() : juce::String());
+        out.push_back (e);
+    }
+    return out;
+}
+
+void DelayAudioProcessor::loadPresetEntry (const PresetEntry& e)
+{
+    if (e.user) loadUserPreset (e.file);
+    else        applyPreset (e.factoryIndex);
+}
+
+namespace
+{
+    juce::File favouritesFile() { return DelayAudioProcessor::getUserPresetDirectory().getParentDirectory().getChildFile ("favourites.txt"); }
+    juce::StringArray readFavourites()
+    {
+        juce::StringArray a;
+        const auto f = favouritesFile();
+        if (f.existsAsFile()) a.addLines (f.loadFileAsString());
+        a.trim();  a.removeEmptyStrings();
+        return a;
+    }
+}
+
+bool DelayAudioProcessor::isFavourite (const juce::String& key) { return readFavourites().contains (key); }
+
+void DelayAudioProcessor::setFavourite (const juce::String& key, bool on)
+{
+    auto a = readFavourites();
+    a.removeString (key);
+    if (on) a.add (key);
+    const auto f = favouritesFile();
+    f.getParentDirectory().createDirectory();
+    f.replaceWithText (a.joinIntoString ("\n"));
+}
+
+void DelayAudioProcessor::randomise (float amount, bool keepTime, bool keepMix)
+{
+    struct R { const char* id; float lo, hi; float chance; };      // chance: how often this one is used at all (else it heads for 'off')
+    static const R table[] =
+    {
+        { "DELAY_TIME", 60.0f, 900.0f, 1.0f },  { "FEEDBACK", 0.15f, 0.70f, 1.0f },   { "HICUT", 2500.0f, 12000.0f, 1.0f },
+        { "LOCUT", 20.0f, 300.0f, 1.0f },       { "TAPE", 0.0f, 0.7f, 0.7f },         { "SWIRL", 0.0f, 0.5f, 0.4f },
+        { "SAUCE", 0.0f, 0.5f, 0.5f },          { "WIDER", 0.0f, 0.6f, 0.6f },        { "RICHER", 0.0f, 0.5f, 0.5f },
+        { "SHIMMER", 0.15f, 0.5f, 0.3f },       { "ATTACK", -0.3f, 0.3f, 1.0f },      { "SUSTAIN", -0.3f, 0.3f, 1.0f },
+        { "GRAIN", 0.1f, 0.6f, 0.3f },          { "SPECTRAL", 0.1f, 0.6f, 0.3f },     { "ECOLOGY", 0.1f, 0.6f, 0.3f },
+        { "WET", 0.25f, 0.6f, 1.0f }
+    };
+    amount = juce::jlimit (0.0f, 1.0f, amount);
+    newUndoStep ("Randomise");
+    for (const auto& r : table)
+    {
+        if (keepTime && juce::String (r.id) == "DELAY_TIME") continue;
+        if (keepMix && juce::String (r.id) == "WET") continue;
+        auto* p = apvts.getParameter (r.id);
+        if (p == nullptr) continue;
+        float target;
+        if (rng.nextFloat() < r.chance) target = r.lo + (r.hi - r.lo) * rng.nextFloat();
+        else                            target = (r.lo <= 0.0f && r.hi >= 0.0f) ? 0.0f : p->convertFrom0to1 (p->getDefaultValue());
+        const float cur01 = p->getValue(), tgt01 = p->convertTo0to1 (target);
+        p->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, cur01 + (tgt01 - cur01) * amount));
+    }
+    apvts.state.setProperty ("presetName", "Random", &undoManager);
+    apvts.state.removeProperty ("userPreset", &undoManager);
+}
+
+// ---------------------------------------------------------------- interface settings (stored with the plugin state)
+juce::ValueTree DelayAudioProcessor::uiTree() const
+{
+    return const_cast<juce::ValueTree&> (apvts.state).getOrCreateChildWithName ("UI", nullptr);
+}
+int  DelayAudioProcessor::getUiWidth() const        { return static_cast<int> (uiTree().getProperty ("width", 720)); }
+void DelayAudioProcessor::setUiWidth (int w)        { uiTree().setProperty ("width", w, nullptr); }
+bool DelayAudioProcessor::getHighContrast() const   { return static_cast<bool> (uiTree().getProperty ("highContrast", false)); }
+void DelayAudioProcessor::setHighContrast (bool on) { uiTree().setProperty ("highContrast", on, nullptr); }
+bool DelayAudioProcessor::getHintSeen() const       { return static_cast<bool> (uiTree().getProperty ("hintSeen", false)); }
+void DelayAudioProcessor::setHintSeen (bool on)     { uiTree().setProperty ("hintSeen", on, nullptr); }
+bool DelayAudioProcessor::getLargeText() const      { return static_cast<bool> (uiTree().getProperty ("largeText", false)); }
+void DelayAudioProcessor::setLargeText (bool on)    { uiTree().setProperty ("largeText", on, nullptr); }
 
 float DelayAudioProcessor::computeDelayMs() const
 {
@@ -370,6 +573,15 @@ void DelayAudioProcessor::clearState()
     destinyCountdown = 0;
     envFast = envSlow = 0.0f;
     duckEnvelope = 0.0f;
+    fluxEl.reset();  fluxPocket.reset();  learnedMs.store (0.0f);
+    grainPhase[0] = 0.0f;  grainPhase[1] = 0.5f;
+    for (auto& a : grainOff) for (auto& v : a) v = 0.0f;
+    for (auto& a : grainRate) for (auto& v : a) v = 0.0f;
+    for (int c = 0; c < 2; ++c) { specLow[c].reset();  specHigh[c].reset(); }
+    stutCap = stutPos = stutN = 0;  stutMix = 0.0f;
+    tsSpeed = 1.0f;  tsOff = 0.0f;  tsGain = 1.0f;  rtPhase = 0.0f;  rtActive = false;  prevRevThrow = false;
+    for (int k = 0; k < kTrail; ++k) { trailLevel[k].store (0.0f);  trailTone[k].store (1.0f); }
+    trailCount.store (0);  trailPeak = 0.0f;  trailToneAcc = 1.0f;  trailSamples = 0;
     fadeLeft = 0;
     lastTargetSamples = -1.0f;
     reverb.reset();
@@ -383,7 +595,15 @@ void DelayAudioProcessor::reset()
     clearState();
     snapSmoothers();
     gateBeats = 0.0;  gateGain = 1.0f;
+    repeatTimer = 0.0f;  repeatGate = 1.0f;  hissEnv = 0.0f;
+    elasticMul = 1.0f;  elasticRate = kElasticRefRate;  elFast = elSlow = 0.0f;  elSince = 1000000000;
+    for (auto& v : teleRing) std::fill (v.begin(), v.end(), 0.0f);
+    teleCurCount = telePrevCount = 0;  telePending = false;  teleGhostPos = -1;  telePredT = 0;  teleTrust = 0.5f;  teleLp[0] = teleLp[1] = 0.0f;
+    ecoCount = 0;  ecoGain = ecoGainT = ecoCoef = ecoCoefT = 1.0f;  ecoOff = ecoVel = ecoAct = 0.0f;  ecoLp[0] = ecoLp[1] = 0.0f;  ecoWake = 0;
+    for (auto& v : pocketRing) std::fill (v.begin(), v.end(), 0.0f);
+    pocketFast = 0.0f;  pocketQuiet = 0;  pocketArmed = false;  pocketFade = 0;
     killState = 0;    killGain = 1.0f;
+    apDepthSmooth = 0.0f;  apRndHeld = apRndSmooth = 0.0f;  apCycleIdx = -1;
     smoothDelayTime.setCurrentAndTargetValue ((computeDelayMs() / 1000.0f) * static_cast<float> (sampleRate));
 }
 
@@ -393,6 +613,11 @@ void DelayAudioProcessor::prepareToPlay (double sr, int samplesPerBlock)
 
     const int maxDelaySamples = static_cast<int> (sampleRate * 6.0);
     delayBuffer.setSize (2, maxDelaySamples);
+    for (auto& v : pocketRing) v.assign (static_cast<size_t> (kPocketRing), 0.0f);
+    for (auto& v : teleRing) v.assign (static_cast<size_t> (kTeleRing), 0.0f);
+    teleWrite = 0;
+    pocketWrite = 0;  pocketCur = pocketFrom = kPocketLatencyMs * 0.001f * static_cast<float> (sampleRate);
+    pocketFade = 0;  pocketFast = 0.0f;  pocketQuiet = 0;  pocketArmed = false;
 
     const juce::dsp::ProcessSpec spec { sampleRate, static_cast<juce::uint32> (juce::jmax (1, samplesPerBlock)), 1 };
     for (int c = 0; c < 2; ++c)
@@ -401,6 +626,8 @@ void DelayAudioProcessor::prepareToPlay (double sr, int samplesPerBlock)
         loCut[c].setType (juce::dsp::StateVariableTPTFilterType::highpass);
         hiCut[c].prepare (spec);
         hiCut[c].setType (juce::dsp::StateVariableTPTFilterType::lowpass);
+        specLow[c].prepare (spec);   specLow[c].setType (juce::dsp::LinkwitzRileyFilterType::lowpass);   specLow[c].setCutoffFrequency (700.0f);
+        specHigh[c].prepare (spec);  specHigh[c].setType (juce::dsp::LinkwitzRileyFilterType::highpass); specHigh[c].setCutoffFrequency (700.0f);
     }
 
     reverb.setSampleRate (sampleRate);
@@ -415,7 +642,17 @@ void DelayAudioProcessor::prepareToPlay (double sr, int samplesPerBlock)
     revR.assign (static_cast<size_t> (kMaxChunk), 0.0f);
     duckBuf.assign (static_cast<size_t> (kMaxChunk), 1.0f);
     bypBuf.assign (static_cast<size_t> (kMaxChunk), 0.0f);
+    for (auto& v : stutBuf) v.assign (static_cast<size_t> (1 << 17), 0.0f);
+    fluxFlags.assign (static_cast<size_t> (kMaxChunk), 0);
+    monoBuf.assign (static_cast<size_t> (kMaxChunk), 0.0f);
+    fluxEl.prepare (sampleRate);  fluxPocket.prepare (sampleRate);
     gateBeats = 0.0;  gateGain = 1.0f;
+    repeatTimer = 0.0f;  repeatGate = 1.0f;  hissEnv = 0.0f;
+    elasticMul = 1.0f;  elasticRate = kElasticRefRate;  elFast = elSlow = 0.0f;  elSince = 1000000000;
+    for (auto& v : teleRing) std::fill (v.begin(), v.end(), 0.0f);
+    teleCurCount = telePrevCount = 0;  telePending = false;  teleGhostPos = -1;  telePredT = 0;  teleTrust = 0.5f;  teleLp[0] = teleLp[1] = 0.0f;
+    ecoCount = 0;  ecoGain = ecoGainT = ecoCoef = ecoCoefT = 1.0f;  ecoOff = ecoVel = ecoAct = 0.0f;  ecoLp[0] = ecoLp[1] = 0.0f;  ecoWake = 0;
+    apDepthSmooth = 0.0f;  apRndHeld = apRndSmooth = 0.0f;  apCycleIdx = -1;
     killState = 0;    killGain = 1.0f;
 
     for (auto& r : shimRing)
@@ -471,6 +708,16 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     if (numChannels == 0 || total == 0 || delayBuffer.getNumSamples() == 0)
         return;
 
+    // A host or upstream plugin can occasionally hand us NaN/inf; left alone it would circulate in the
+    // feedback loop forever. Replace such samples (and absurd values) with silence before anything else.
+    for (int c = 0; c < buffer.getNumChannels(); ++c)
+    {
+        auto* d = buffer.getWritePointer (c);
+        for (int i = 0; i < total; ++i)
+            if (! (std::abs (d[i]) < 1.0e4f))   // false for NaN, inf and huge values
+                d[i] = 0.0f;
+    }
+
     // optional sidechain (second input bus): the ducker follows it instead of the main input
     const float* scL = nullptr;
     const float* scR = nullptr;
@@ -486,6 +733,7 @@ void DelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     for (int pos = 0; pos < total; pos += kMaxChunk)
     {
         juce::AudioBuffer<float> chunk (buffer.getArrayOfWritePointers(), numChannels, pos, juce::jmin (kMaxChunk, total - pos));
+        chunkOffset = pos;
         processChunk (chunk, scL != nullptr ? scL + pos : nullptr, scR != nullptr ? scR + pos : nullptr);
     }
 }
@@ -500,8 +748,24 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const 
     const bool destiny = param ("DESTINY") > 0.5f;
     const bool cheap   = param ("CHEAP") > 0.5f;
     const bool mono    = param ("MONO") > 0.5f;
+    const int  repeatsN = juce::jlimit (0, kNumRepeats - 1, static_cast<int> (param ("REPEATS") + 0.5f));
+    const float teleAmt = juce::jlimit (0.0f, 1.0f, param ("TELEPATHY"));
+    const float ecoAmt  = juce::jlimit (0.0f, 1.0f, param ("ECOLOGY"));
+    const float grainAmt = juce::jlimit (0.0f, 1.0f, param ("GRAIN"));
+    const float specAmt  = juce::jlimit (0.0f, 1.0f, param ("SPECTRAL"));
+    const bool stutterOn  = param ("STUTTER") > 0.5f;
+    const bool tapeStopOn = param ("TAPESTOP") > 0.5f;
+    const bool revThrowOn = param ("REVTHROW") > 0.5f;
+    if (revThrowOn && ! prevRevThrow) { rtActive = true;  rtPhase = 0.0f;  rtLen = 0.0f; }
+    prevRevThrow = revThrowOn;
+
 
     const float sr = static_cast<float> (sampleRate);
+    if (ecoAmt > 0.0f) ecoWake = static_cast<int> (2.0f * sr);
+    const bool ecoRun = ecoAmt > 0.0f || ecoWake > 0;
+    ecoWake = juce::jmax (0, ecoWake - numSamples);
+    const float ecoSmooth = 1.0f - std::exp (-1.0f / (0.005f * sr));
+    const float ecoActA = 1.0f - std::exp (-1.0f / (0.02f * sr)), ecoActR = 1.0f - std::exp (-1.0f / (0.6f * sr));
 
     smDry.setTargetValue      (param ("DRY"));
     smWet.setTargetValue      (param ("WET"));
@@ -539,6 +803,7 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const 
     }
 
     // Host tempo for sync mode (falls back to the last known / 120 bpm)
+    hostPlaying = false;
     if (auto* ph = getPlayHead())
         if (auto pos = ph->getPosition())
         {
@@ -546,10 +811,107 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const 
                 hostBpm = *bpm;
             if (pos->getIsPlaying())
                 if (auto ppq = pos->getPpqPosition())
-                    gateBeats = *ppq;   // lock the gate to the song position while the host plays
+                {
+                    // lock the gate to the song position while the host plays (ppq is for the block start)
+                    gateBeats = *ppq + static_cast<double> (chunkOffset) * juce::jmax (20.0, hostBpm) / (60.0 * sampleRate);
+                    hostPlaying = true;
+                }
         }
 
-    const float delayMs = computeDelayMs();
+    // ---- Pocket meter / nudge: measure where each vocal word lands against the 1/16 grid and, if asked,
+    // move the word part of the way toward the grid (limited, with a short cross-fade so it never sounds quantized)
+    {
+        const bool pocketOn = param ("POCKET") > 0.5f;
+        const float pocketAmt = juce::jlimit (0.0f, 1.0f, param ("POCKET_AMT"));
+        const bool nudging = pocketOn && pocketAmt > 0.0f;
+        const int wantLat = nudging ? juce::roundToInt (kPocketLatencyMs * 0.001f * sr) : 0;
+        if (wantLat != getLatencySamples())
+            setLatencySamples (wantLat);
+
+        if (pocketOn && ! pocketRing[0].empty())
+        {
+            const int mask = kPocketRing - 1;
+            const int fadeN = juce::jmax (1, static_cast<int> (0.006f * sr));
+            const double bps = juce::jmax (20.0, hostBpm) / (60.0 * sampleRate);
+            const float nominal = kPocketLatencyMs * 0.001f * sr;
+            auto* l = buffer.getWritePointer (0);
+            auto* r = (numChannels > 1 && getMainBusNumInputChannels() > 1) ? buffer.getWritePointer (1) : nullptr;
+            auto readTap = [&] (const std::vector<float>& ring, float d)
+            {
+                const float rp = static_cast<float> (pocketWrite) - d;
+                const int i0 = static_cast<int> (std::floor (rp));
+                const float fr = rp - static_cast<float> (i0);
+                return ring[static_cast<size_t> (i0 & mask)] * (1.0f - fr) + ring[static_cast<size_t> ((i0 + 1) & mask)] * fr;
+            };
+            if (! nudging) { pocketCur = nominal; pocketFade = 0; }
+            for (int i = 0; i < numSamples; ++i)
+                monoBuf[static_cast<size_t> (i)] = r != nullptr ? 0.5f * (l[i] + r[i]) : l[i];
+            fluxPocket.process (monoBuf.data(), numSamples, fluxFlags.data());
+
+            for (int i = 0; i < numSamples; ++i)
+            {
+                const float a = l[i], b = r != nullptr ? r[i] : a;
+                pocketRing[0][static_cast<size_t> (pocketWrite)] = a;
+                pocketRing[1][static_cast<size_t> (pocketWrite)] = b;
+
+                if (fluxFlags[static_cast<size_t> (i)] != 0)   // a new word or note starts
+                {
+                    if (hostPlaying)
+                    {
+                        const double beat = gateBeats + static_cast<double> (i) * bps;
+                        const double off = beat - std::round (beat * 4.0) * 0.25;           // beats from the nearest 1/16
+                        float errMs = static_cast<float> (off * 60000.0 / juce::jmax (20.0, hostBpm)) - FluxOnsetDetector::kLagMs;
+                        errMs = juce::jlimit (-100.0f, 100.0f, errMs);
+                        pocketErr[static_cast<size_t> (pocketCount.load() & 7)].store (errMs);
+                        pocketCount.fetch_add (1);
+                        if (nudging)
+                        {
+                            const float shiftMs = juce::jlimit (-kPocketMaxNudgeMs, kPocketMaxNudgeMs, -errMs * pocketAmt);
+                            pocketFrom = pocketCur;
+                            pocketCur = nominal + shiftMs * 0.001f * sr;
+                            pocketFade = fadeN;
+                        }
+                    }
+                }
+
+                if (nudging)
+                {
+                    float oa = readTap (pocketRing[0], pocketCur), ob = readTap (pocketRing[1], pocketCur);
+                    if (pocketFade > 0)
+                    {
+                        const float t = static_cast<float> (pocketFade) / static_cast<float> (fadeN);
+                        oa += (readTap (pocketRing[0], pocketFrom) - oa) * t;
+                        ob += (readTap (pocketRing[1], pocketFrom) - ob) * t;
+                        --pocketFade;
+                    }
+                    l[i] = oa;
+                    if (r != nullptr) r[i] = ob;
+                }
+                pocketWrite = (pocketWrite + 1) & mask;
+            }
+        }
+    }
+
+    // Tempo-elastic: the delay follows how fast the performer is actually playing (onsets per second),
+    // not just the host BPM. Fast delivery -> tighter repeats, slow -> wider, limited to 0.5x..2x and slewed slowly.
+    elFastA = 1.0f - std::exp (-1.0f / (0.0005f * sr));  elFastR = 1.0f - std::exp (-1.0f / (0.04f * sr));
+    elSlowA = 1.0f - std::exp (-1.0f / (0.10f * sr));    elSlowR = 1.0f - std::exp (-1.0f / (0.30f * sr));
+    {
+        const float dur = static_cast<float> (numSamples) / sr;
+        if (elSince > static_cast<int> (4.0f * sr))   // long silence: drift back to neutral
+            elasticRate += (kElasticRefRate - elasticRate) * juce::jmin (1.0f, dur / 10.0f);
+        sinceOnsetMs.store (static_cast<int> (juce::jmin (100000.0f, 1000.0f * static_cast<float> (elSince) / sr)));
+        if (elSince > static_cast<int> (3.0f * sr))
+            learnedMs.store (0.0f);
+        const float amount = juce::jlimit (0.0f, 1.0f, param ("ELASTIC"));
+        const float target = amount > 0.0f
+                               ? juce::jlimit (0.5f, 2.0f, std::pow (kElasticRefRate / elasticRate, amount))
+                               : 1.0f;
+        elasticMul += (target - elasticMul) * (1.0f - std::exp (-dur / 1.5f));
+        elasticShown.store (elasticMul);
+    }
+
+    const float delayMs = computeDelayMs() * elasticMul;
     effectiveDelayMs.store (delayMs);
 
     // Small change -> glide. Big jump -> cross-fade from the old position to the new one.
@@ -637,6 +999,10 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const 
 
     auto* leftIn  = buffer.getReadPointer (0);
     auto* rightIn = (numChannels > 1 && getMainBusNumInputChannels() > 1) ? buffer.getReadPointer (1) : leftIn;
+    for (int i = 0; i < numSamples; ++i)
+        monoBuf[static_cast<size_t> (i)] = 0.5f * (leftIn[i] + rightIn[i]);
+    fluxEl.process (monoBuf.data(), numSamples, fluxFlags.data());
+    const float lagSamples = FluxOnsetDetector::kLagMs * 0.001f * sr;
     auto* leftOut  = buffer.getWritePointer (0);
     auto* rightOut = numChannels > 1 ? buffer.getWritePointer (1) : leftOut;
 
@@ -777,12 +1143,62 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const 
             modR += depth * destinyValue[1];
         }
 
-        const float dlyL = juce::jlimit (3.0f, maxDelaySamples, base + modL);
-        const float dlyR = juce::jlimit (3.0f, maxDelaySamples, base + modR);
+        // ---- Echo ecology: every pass round the loop gets its own random "genome" (gain, darkness, pitch drift,
+        // chance of dying), nudged by the room: quiet -> echoes bloom, busy -> they get eaten.
+        if (ecoRun)
+        {
+            const float lvEco = std::max (std::abs (leftIn[i]), std::abs (rightIn[i]));
+            ecoAct += (lvEco - ecoAct) * (lvEco > ecoAct ? ecoActA : ecoActR);
+            const float act = juce::jlimit (0.0f, 1.0f, (ecoAct - 0.01f) / 0.15f);   // 0 = quiet room, 1 = something is playing
+            if (--ecoCount <= 0)
+            {
+                ecoCount = juce::jmax (256, static_cast<int> (base * 0.25f));   // four creatures per delay time (a note's repeats keep their place in the cycle)
+                float g = 1.0f + ecoAmt * 0.22f * (rng.nextFloat() * 2.0f - 1.0f);
+                g *= 1.0f + ecoAmt * (0.10f * (1.0f - act) - 0.30f * act);
+                if (rng.nextFloat() < ecoAmt * ecoAmt * (0.02f + 0.20f * act))
+                    g = 0.0f;                                                       // this repeat dies
+                ecoGainT = g;
+                const float cut = 16000.0f * std::pow (0.2f, ecoAmt * rng.nextFloat());   // ages: darker
+                ecoCoefT = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * juce::jmin (cut, sr * 0.45f) / sr);
+                ecoVel = ecoAmt * 0.004f * (rng.nextFloat() * 2.0f - 1.0f);             // up to +-0.4 % pitch per pass
+            }
+            if (ecoAmt <= 0.0f) { ecoGainT = 1.0f; ecoCoefT = 1.0f; ecoVel = 0.0f; }
+            ecoGain += (ecoGainT - ecoGain) * ecoSmooth;
+            ecoCoef += (ecoCoefT - ecoCoef) * ecoSmooth;
+            const float lim = 0.02f * base;
+            ecoOff = juce::jlimit (-lim, lim, ecoOff + ecoVel - ecoOff * (2.0f / sr));   // wanders, gently pulled back
+            modL += ecoOff;  modR += ecoOff;
+        }
+        else
+        {
+            ecoGain = ecoGainT = 1.0f;  ecoCoef = ecoCoefT = 1.0f;  ecoOff = 0.0f;  ecoVel = 0.0f;  ecoLp[0] = ecoLp[1] = 0.0f;
+        }
+
+        // Tape stop: the read head slows to a halt (pitch falls, level falls); on release it spins back up
+        {
+            const float capOff = 0.6f * sr;
+            if (tapeStopOn)
+            {
+                tsSpeed = juce::jmax (0.0f, tsSpeed - 1.0f / (0.7f * sr));
+                tsOff = juce::jmin (capOff, tsOff + (1.0f - tsSpeed));
+                tsGain = tsSpeed;
+            }
+            else if (tsOff > 0.0f || tsSpeed < 1.0f)
+            {
+                tsSpeed = 1.0f;
+                tsOff = juce::jmax (0.0f, tsOff - 0.6f);      // 1.6x speed: a quick upward whoosh back to time
+                tsGain = juce::jmin (1.0f, tsGain + 1.0f / (0.08f * sr));
+            }
+            else
+                tsGain = 1.0f;
+        }
+        const float dlyL = juce::jlimit (3.0f, maxDelaySamples, base + modL + tsOff);
+        const float dlyR = juce::jlimit (3.0f, maxDelaySamples, base + modR + tsOff);
 
         float rawA = readDelayed (delayLeftPtr,  dlyL);
         float rawB = readDelayed (delayRightPtr, dlyR);
 
+        const bool timeFading = fadeLeft > 0;
         if (fadeLeft > 0)   // equal-power cross-fade from the previous delay position to the new one
         {
             const float t = 1.0f - static_cast<float> (fadeLeft) / static_cast<float> (fadeTotal);
@@ -799,14 +1215,25 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const 
         {
             const float maxLen = 0.5f * maxDelaySamples - 8.0f;
             float revA = 0.0f, revB = 0.0f;
+
+            // Window weights of the two heads. Locked 0.5 apart they sum to exactly 1; if a delay-time change ever
+            // pulls them out of step the total is clamped to 1, so this stage can never have a loop gain above
+            // the feedback setting (before, heads that had drifted apart summed to up to 2 and the echoes ran away).
+            float wh[2];
+            for (int h = 0; h < 2; ++h)
+            {
+                const float sp = std::sin (juce::MathConstants<float>::pi * static_cast<float> (revPhase[h]));
+                wh[h] = sp * sp;
+            }
+            const float wNorm = 1.0f / juce::jmax (1.0f, wh[0] + wh[1]);
+
             for (int h = 0; h < 2; ++h)
             {
                 if (revLen[h] <= 0.0f)
                     revLen[h] = juce::jlimit (64.0f, maxLen, base);
 
                 const float p = static_cast<float> (revPhase[h]);
-                const float s = std::sin (juce::MathConstants<float>::pi * p);
-                const float w = s * s;                       // w(p) + w(p + 0.5) = 1
+                const float w = wh[h] * wNorm;
                 const float d = 2.0f * revLen[h] * p;        // delay grows 2 samples per sample -> read position runs backwards
                 revA += w * readDelayed (delayLeftPtr,  juce::jlimit (3.0f, maxDelaySamples, d + modL));
                 revB += w * readDelayed (delayRightPtr, juce::jlimit (3.0f, maxDelaySamples, d + modR));
@@ -818,6 +1245,15 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const 
                     revLen[h] = juce::jlimit (64.0f, maxLen, base);   // length is only re-latched where the window is zero
                 }
             }
+
+            // Re-lock: the heads must stay half a cycle apart. After a delay-time change they can end up with
+            // different lengths and drift; ease the second head back to exactly +0.5 (a gentle, short-lived bend).
+            double err = revPhase[1] - revPhase[0] - 0.5;
+            err -= std::floor (err + 0.5);
+            revPhase[1] -= err * 2.0e-4;
+            if (revPhase[1] < 0.0) revPhase[1] += 1.0;
+            if (revPhase[1] >= 1.0) revPhase[1] -= 1.0;
+
             rawA = rawA * (1.0f - rev) + revA * rev;
             rawB = rawB * (1.0f - rev) + revB * rev;
         }
@@ -827,11 +1263,121 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const 
             revLen[0] = revLen[1] = 0.0f;
         }
 
+        if (grainAmt > 0.0f && ! timeFading)   // granular echoes: overlapping grains, each with its own small time offset and pitch scatter
+        {
+            const float glen = 0.06f * sr;
+            float gOut[2] { 0.0f, 0.0f };
+            for (int h = 0; h < 2; ++h)
+            {
+                const float sp = std::sin (juce::MathConstants<float>::pi * grainPhase[h]);
+                const float w = sp * sp;
+                for (int c = 0; c < 2; ++c)
+                {
+                    const float o = grainOff[c][h] + grainRate[c][h] * grainPhase[h] * glen;
+                    const float d = juce::jlimit (3.0f, maxDelaySamples, (c == 0 ? dlyL : dlyR) + o);
+                    gOut[c] += w * readDelayed (c == 0 ? delayLeftPtr : delayRightPtr, d);
+                }
+                grainPhase[h] += 1.0f / glen;
+                if (grainPhase[h] >= 1.0f)
+                {
+                    grainPhase[h] -= 1.0f;
+                    for (int c = 0; c < 2; ++c)
+                    {
+                        grainOff[c][h]  = grainAmt * 0.04f * sr * (rng.nextFloat() * 2.0f - 1.0f);
+                        grainRate[c][h] = grainAmt * 0.15f * (rng.nextFloat() * 2.0f - 1.0f);
+                    }
+                }
+            }
+            const float m = juce::jmin (1.0f, grainAmt * 3.0f);
+            rawA = rawA * (1.0f - m) + gOut[0] * m;
+            rawB = rawB * (1.0f - m) + gOut[1] * m;
+        }
+        else if (grainAmt <= 0.0f)
+        {
+            grainPhase[0] = 0.0f;  grainPhase[1] = 0.5f;
+        }
+
+        if (specAmt > 0.0f && ! timeFading)   // spectral delay: lows arrive later, highs earlier (more with every repeat)
+        {
+            for (int c = 0; c < 2; ++c)
+            {
+                const float d0 = c == 0 ? dlyL : dlyR;
+                float* dp = c == 0 ? delayLeftPtr : delayRightPtr;
+                const float lo = readDelayed (dp, juce::jlimit (3.0f, maxDelaySamples, d0 * (1.0f + 0.5f * specAmt)));
+                const float hi = readDelayed (dp, juce::jlimit (3.0f, maxDelaySamples, d0 * (1.0f - 0.5f * specAmt)));
+                (c == 0 ? rawA : rawB) = specLow[c].processSample (0, lo) + specHigh[c].processSample (0, hi);
+            }
+        }
+
+        // ---- performance buttons (replace the read while active)
+        {
+            const float stutRamp = 1.0f / (0.005f * sr);
+            stutMix = stutterOn ? juce::jmin (1.0f, stutMix + stutRamp) : juce::jmax (0.0f, stutMix - stutRamp);
+            if (! stutterOn && stutMix <= 0.0f) stutN = 0;
+            if (stutterOn || stutMix > 0.0f)   // stutter: the first slice of the echo after the button goes down is captured, then looped
+            {
+                if (stutN == 0)
+                {
+                    stutN = juce::jlimit (480, 1 << 17, static_cast<int> (juce::jmin (base * 0.25f, 0.5f * sr)));
+                    stutCap = 0;  stutPos = 0;
+                }
+                float sA = rawA, sB = rawB;
+                if (stutCap < stutN)
+                {
+                    stutBuf[0][static_cast<size_t> (stutCap)] = rawA;
+                    stutBuf[1][static_cast<size_t> (stutCap)] = rawB;
+                    ++stutCap;
+                }
+                else
+                {
+                    const int fadeN = juce::jmax (1, static_cast<int> (0.003f * sr));
+                    const float g = juce::jmin (1.0f, static_cast<float> (juce::jmin (stutPos, stutN - 1 - stutPos)) / static_cast<float> (fadeN));
+                    sA = stutBuf[0][static_cast<size_t> (stutPos)] * g;
+                    sB = stutBuf[1][static_cast<size_t> (stutPos)] * g;
+                    if (++stutPos >= stutN) stutPos = 0;
+                }
+                rawA = rawA * (1.0f - stutMix) + sA * stutMix;
+                rawB = rawB * (1.0f - stutMix) + sB * stutMix;
+            }
+            else
+                stutN = 0;
+
+            if (rtActive)   // reverse throw: one backwards swell of the last delay time, then back to normal
+            {
+                const float maxLen = 0.5f * maxDelaySamples - 8.0f;
+                if (rtLen <= 0.0f) rtLen = juce::jlimit (1024.0f, maxLen, base);
+                const float sp = std::sin (juce::MathConstants<float>::pi * rtPhase);
+                const float w = sp * sp;
+                const float d = 2.0f * rtLen * rtPhase;
+                const float tA = readDelayed (delayLeftPtr,  juce::jlimit (3.0f, maxDelaySamples, d + modL));
+                const float tB = readDelayed (delayRightPtr, juce::jlimit (3.0f, maxDelaySamples, d + modR));
+                rawA = rawA * (1.0f - w) + tA * w;
+                rawB = rawB * (1.0f - w) + tB * w;
+                rtPhase += 1.0f / rtLen;
+                if (rtPhase >= 1.0f) { rtActive = false;  rtPhase = 0.0f;  rtLen = 0.0f; }
+            }
+
+            rawA *= tsGain;  rawB *= tsGain;
+        }
+
         // ---- DC blocker -> Lo-Cut -> Hi-Cut (inside the loop, so every repeat is filtered again)
         float tapA = rawA - dcX[0] + dcR * dcY[0];   dcX[0] = rawA;   dcY[0] = tapA;
         float tapB = rawB - dcX[1] + dcR * dcY[1];   dcX[1] = rawB;   dcY[1] = tapB;
         if (loCutOn) { tapA = loCut[0].processSample (0, tapA);  tapB = loCut[1].processSample (0, tapB); }
         if (hiCutOn) { tapA = hiCut[0].processSample (0, tapA);  tapB = hiCut[1].processSample (0, tapB); }
+
+        {   // echo trail telemetry: peak and brightness of what arrives, one entry per delay period
+            trailPeak = juce::jmax (trailPeak, std::abs (tapA), std::abs (tapB));
+            if (++trailSamples >= juce::jmax (4096, static_cast<int> (base)))
+            {
+                const int n = trailCount.load();
+                const float ref = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * 16000.0f / sr);
+                trailLevel[static_cast<size_t> (n & (kTrail - 1))].store (juce::jmin (1.0f, trailPeak));
+                trailTone [static_cast<size_t> (n & (kTrail - 1))].store (juce::jlimit (0.0f, 1.0f, ecoCoef / ref) * (1.0f - 0.5f * tapeAmt));
+                trailCount.store (n + 1);
+                trailPeak = 0.0f;  trailSamples = 0;
+            }
+        }
 
         if (tapeAmt > 0.0f)   // tape in the loop: soft saturation + HF loss on every pass
         {
@@ -901,6 +1447,94 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const 
         const float inLeft  = leftIn[i];
         const float inRight = rightIn[i];
 
+        // ---- performance-speed follower: onset detection on the dry input
+        {
+            const float lv = std::max (std::abs (inLeft), std::abs (inRight));
+            elFast += (lv - elFast) * (lv > elFast ? elFastA : elFastR);
+            elSlow += (lv - elSlow) * (lv > elSlow ? elSlowA : elSlowR);
+            if (elSince < 1000000000) ++elSince;
+            ++teleClock;
+            if (fluxFlags[static_cast<size_t> (i)] != 0 && elSince > static_cast<int> (0.06f * sr))
+            {
+                const float ioi = static_cast<float> (elSince) / sr;
+                if (ioi < 1.5f)
+                {
+                    elasticRate += (juce::jlimit (1.0f, 12.0f, 1.0f / ioi) - elasticRate) * 0.25f;
+                    learnedMs.store (1000.0f / elasticRate);
+                }
+
+                // ---- Telepathy: learn the rhythm of this phrase against the previous one and predict the next onset
+                {
+                    const int sincePrev = elSince;
+                    if (sincePrev > static_cast<int> (0.7f * sr))          // a pause: a new phrase begins
+                    {
+                        if (teleCurCount >= 2)
+                        {
+                            telePrevCount = teleCurCount;
+                            std::copy (teleCur, teleCur + 16, telePrev);
+                        }
+                        teleCurCount = 0;
+                        telePending = false;
+                    }
+                    else
+                    {
+                        if (teleCurCount < 16) teleCur[teleCurCount++] = static_cast<float> (sincePrev);
+                        if (telePredT > 0)   // was this onset predicted? the ghosts are only as loud as the guesses are good
+                        {
+                            const float err = std::abs (static_cast<float> (teleClock - telePredT)) / juce::jmax (1.0f, telePredIoi);
+                            teleTrust = 0.7f * teleTrust + 0.3f * (err < 0.2f ? 1.0f : 0.0f);
+                        }
+                    }
+                    telePredT = 0;
+                    float nextIoi = 0.0f;
+                    const int k = teleCurCount;
+                    const float fromPrev = k < telePrevCount ? telePrev[k] : 0.0f;
+                    float med = 0.0f, spread = 1.0f;
+                    if (teleCurCount >= 3)
+                    {
+                        float a3 = teleCur[teleCurCount - 1], b3 = teleCur[teleCurCount - 2], c3 = teleCur[teleCurCount - 3];
+                        const float lo = std::min ({ a3, b3, c3 }), hi = std::max ({ a3, b3, c3 });
+                        med = a3 + b3 + c3 - lo - hi;
+                        spread = (hi - lo) / juce::jmax (1.0f, med);
+                    }
+                    if (fromPrev > 0.0f && (med <= 0.0f || std::abs (fromPrev - med) / med < 0.35f)) nextIoi = fromPrev;   // same rhythm as last phrase
+                    else if (med > 0.0f && spread < 0.25f) nextIoi = med;                                                 // steady pulse
+                    teleLocked.store (0);
+                    teleTrustShown.store (teleTrust);
+                    if (nextIoi >= 0.12f * sr && nextIoi <= 0.7f * sr)
+                    {
+                        teleLocked.store (1);
+                        const int lead = static_cast<int> (0.012f * sr);
+                        // the ghost is the word that just started, played backwards so it swells into the expected onset:
+                        // it must be entirely in the past when it starts, so it is at most about half the gap long
+                        int len = juce::jmin (static_cast<int> (0.3f * sr), (static_cast<int> (nextIoi) - lead - 8) / 2);
+                        if (len >= static_cast<int> (0.03f * sr))
+                        {
+                            telePredIoi = nextIoi;
+                            telePredT = teleClock + static_cast<long long> (nextIoi - lagSamples);
+                            teleGhostLen = len;
+                            teleGhostD0 = nextIoi - static_cast<float> (lead) - 2.0f * static_cast<float> (len);
+                            teleGhostStart = telePredT - lead - len;
+                            telePending = true;
+                            teleGhostPos = -1;
+                        }
+                    }
+                }
+                elSince = 0;
+            }
+        }
+
+        if (teleAmt > 0.0f)
+        {
+            teleRing[0][static_cast<size_t> (teleWrite)] = inLeft;
+            teleRing[1][static_cast<size_t> (teleWrite)] = inRight;
+            if (telePending && teleClock >= teleGhostStart) { telePending = false; teleGhostPos = 0; }
+        }
+        else
+        {
+            telePending = false;  teleGhostPos = -1;
+        }
+
         // ---- ducker envelope follows the dry input
         const float inLevel = scL != nullptr ? std::max (std::abs (scL[i]), std::abs (scR[i]))
                                              : std::max (std::abs (inLeft), std::abs (inRight));
@@ -917,16 +1551,67 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const 
         const float injA = inLeft * (1.0f - ping) * injGain;
         const float injB = (inRight * (1.0f - ping) + mid * ping) * injGain;
 
-        const float fbA = fbSrcA * (1.0f - ping) + fbSrcB * ping;   // ping-pong feeds each line from the other
-        const float fbB = fbSrcB * (1.0f - ping) + fbSrcA * ping;
-        delayLeftPtr[writePosition]  = injA + fbA * feedbackVal;
-        delayRightPtr[writePosition] = injB + fbB * feedbackVal;
+        float fbA = fbSrcA * (1.0f - ping) + fbSrcB * ping;   // ping-pong feeds each line from the other
+        float fbB = fbSrcB * (1.0f - ping) + fbSrcA * ping;
+        if (ecoRun)
+        {
+            ecoLp[0] += ecoCoef * (fbA - ecoLp[0]);  ecoLp[1] += ecoCoef * (fbB - ecoLp[1]);
+            const float capG = juce::jmax (1.0f, 0.97f / juce::jmax (feedbackVal, 0.05f));   // blooming never reaches runaway
+            const float g = juce::jmin (ecoGain, capG);
+            fbA = ecoLp[0] * g;  fbB = ecoLp[1] * g;
+        }
+        // Limited repeats: while new sound keeps arriving the loop stays open; after the last input the
+        // feedback runs for (N-1) more delay times and is then shut, so exactly N echoes are heard.
+        float repeatGainTarget = 1.0f;
+        if (repeatsN > 0)
+        {
+            if (std::max (std::abs (inLeft), std::abs (inRight)) * (1.0f - byp) > 0.002f)
+                repeatTimer = static_cast<float> (repeatsN - 1) * base + 0.005f * sr
+                              + (shimAmt > 0.0f ? static_cast<float> (repeatsN) * 0.5f * shimWin : 0.0f);
+            else if (repeatTimer > 0.0f)
+                repeatTimer -= 1.0f;
+            repeatGainTarget = repeatTimer > 0.0f ? 1.0f : 0.0f;
+        }
+        repeatGate += (repeatGainTarget - repeatGate) * 0.02f;   // ~1 ms
+        const float fbGain = feedbackVal * repeatGate;
+
+        delayLeftPtr[writePosition]  = injA + fbA * fbGain;
+        delayRightPtr[writePosition] = injB + fbB * fbGain;
 
         writePosition = (writePosition + 1) % delayBufLen;
 
         // wet output: left/right swapped for Inverted and Ping Pong
         float wl = tapA * (1.0f - swap) + tapB * swap;
         float wr = tapB * (1.0f - swap) + tapA * swap;
+
+        // ---- Telepathy ghost: a faint, dark, reversed replay of what was just played that swells to the exact
+        // moment the next word is expected, then lets the real thing land in the gap
+        if (teleGhostPos >= 0)
+        {
+            const float g = static_cast<float> (teleGhostPos);
+            const float x = g / static_cast<float> (teleGhostLen);
+            const float fadeN = 0.008f * sr;
+            const float env = x * x * juce::jmin (1.0f, (static_cast<float> (teleGhostLen) - g) / fadeN);
+            const float quiet = 1.0f - juce::jlimit (0.0f, 1.0f, elFast * 10.0f);       // never talk over a word that is still going
+            const float lvl = teleAmt * 0.45f * (0.35f + 0.65f * teleTrust) * env * quiet;
+            const float d = teleGhostD0 + 2.0f * g;                                     // reading the word backwards
+            float ga[2];
+            for (int c = 0; c < 2; ++c)
+            {
+                const float rp = static_cast<float> (teleWrite) - d;
+                const int i1 = static_cast<int> (std::floor (rp));
+                const float f = rp - static_cast<float> (i1);
+                constexpr int m = kTeleRing - 1;
+                const auto& rg = teleRing[c];
+                ga[c] = hermite (rg[static_cast<size_t> ((i1 - 1) & m)], rg[static_cast<size_t> (i1 & m)],
+                                 rg[static_cast<size_t> ((i1 + 1) & m)], rg[static_cast<size_t> ((i1 + 2) & m)], f);
+                teleLp[c] += 0.28f * (ga[c] - teleLp[c]);                               // ~3 kHz: faint and far away
+            }
+            wl += teleLp[0] * lvl;  wr += teleLp[1] * lvl;
+            if (++teleGhostPos >= teleGhostLen) teleGhostPos = -1;
+        }
+        if (teleAmt > 0.0f)
+            teleWrite = (teleWrite + 1) & (kTeleRing - 1);
 
         // ---- wet flavour chain: Attack/Sustain -> Cheap -> Tape -> Swirl
         if (attackAmt != 0.0f || sustainAmt != 0.0f)
@@ -954,8 +1639,12 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const 
             wr = std::tanh (wr * tapeDrive) / tapeDrive;
             tapeLp[0] += tapeCoef * (wl - tapeLp[0]);   wl = tapeLp[0];
             tapeLp[1] += tapeCoef * (wr - tapeLp[1]);   wr = tapeLp[1];
-            wl += (rng.nextFloat() * 2.0f - 1.0f) * hissGain;
-            wr += (rng.nextFloat() * 2.0f - 1.0f) * hissGain;
+            // hiss only rides along with the echoes: it follows the wet level, so silence stays silent
+            const float lvl = std::max (std::abs (wl), std::abs (wr));
+            hissEnv += (lvl - hissEnv) * (lvl > hissEnv ? 0.01f : 1.0f - std::exp (-1.0f / (0.15f * sr)));
+            const float hissOpen = juce::jlimit (0.0f, 1.0f, hissEnv / 0.003f);
+            wl += (rng.nextFloat() * 2.0f - 1.0f) * hissGain * hissOpen;
+            wr += (rng.nextFloat() * 2.0f - 1.0f) * hissGain * hissOpen;
         }
 
         if (swirlAmt > 0.0f)   // 4-stage phaser, L/R LFOs a quarter-cycle apart
@@ -999,6 +1688,12 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const 
     const float gateDepth = juce::jlimit (0.0f, 1.0f, param ("GATE_DEPTH"));
     const double beatsPerSample = juce::jmax (20.0, hostBpm) / (60.0 * sampleRate);
     const float gateCoef = 1.0f - std::exp (-1.0f / (0.002f * sr));
+    const int apDiv = juce::jlimit (0, kNumAutoPan - 1, static_cast<int> (param ("AUTOPAN") + 0.5f));
+    const double apCycleBeats = kAutoPanBeats[apDiv];
+    const float apDepthTarget = apDiv > 0 ? juce::jlimit (0.0f, 1.0f, param ("AP_DEPTH")) : 0.0f;
+    const float apCoef = 1.0f - std::exp (-1.0f / (0.02f * sr));
+    const float apRndCoef = 1.0f - std::exp (-1.0f / (0.03f * sr));
+    float apOffset = 0.0f;
     const float killStepOut = 1.0f / (0.010f * sr), killStepIn = 1.0f / (0.005f * sr);
 
     for (int i = 0; i < numSamples; ++i)
@@ -1022,9 +1717,36 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const 
         if (mono)
             wl = wr = 0.5f * (wl + wr);
 
+        // auto-pan: an LFO locked to the song position swings the echoes left and right
+        apDepthSmooth += apCoef * (apDepthTarget - apDepthSmooth);
+        apOffset = 0.0f;
+        if (apDiv > 0 && apDepthSmooth > 0.0005f)
+        {
+            const double cyc = gateBeats / apCycleBeats;
+            const double cycFloor = std::floor (cyc);
+            const float ph = static_cast<float> (cyc - cycFloor);
+            float lfo;
+            if (modShape == 1)
+                lfo = ph < 0.25f ? 4.0f * ph : (ph < 0.75f ? 2.0f - 4.0f * ph : 4.0f * ph - 4.0f);
+            else if (modShape == 2)
+            {
+                if (static_cast<long long> (cycFloor) != apCycleIdx)
+                {
+                    apCycleIdx = static_cast<long long> (cycFloor);
+                    apRndHeld = rng.nextFloat() * 2.0f - 1.0f;
+                }
+                apRndSmooth += apRndCoef * (apRndHeld - apRndSmooth);
+                lfo = apRndSmooth;
+            }
+            else
+                lfo = std::sin (juce::MathConstants<float>::twoPi * ph);
+            apOffset = apDepthSmooth * lfo;
+        }
+        const float panEff = juce::jlimit (-1.0f, 1.0f, panVal + apOffset);
+
         // PAN positions the delayed signal only (balance law, centre = unity)
-        const float panGainL = panVal > 0.0f ? 1.0f - panVal : 1.0f;
-        const float panGainR = panVal < 0.0f ? 1.0f + panVal : 1.0f;
+        const float panGainL = panEff > 0.0f ? 1.0f - panEff : 1.0f;
+        const float panGainR = panEff < 0.0f ? 1.0f + panEff : 1.0f;
 
         // rhythmic gate on the echoes (locked to the host bar, free-running when stopped)
         const double barPos = gateBeats * 0.25;
@@ -1065,6 +1787,7 @@ void DelayAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const 
     {
         const double bp = gateBeats * 0.25;
         gatePosition.store (static_cast<float> (bp - std::floor (bp)));
+        autoPanValue.store (apOffset);
     }
 
     // Accumulate until the GUI reads (GUI resets via exchange), so short blocks don't hide peaks
@@ -1083,17 +1806,31 @@ juce::AudioProcessorEditor* DelayAudioProcessor::createEditor()
 
 void DelayAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    auto state = apvts.copyState();
+    auto state = apvts.copyState();       // copyState flushes pending parameter changes itself
+    state.setProperty ("stateVersion", kStateVersion, nullptr);
     std::unique_ptr<juce::XmlElement> xml (state.createXml());
     copyXmlToBinary (*xml, destData);
 }
 
 void DelayAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
+    if (data == nullptr || sizeInBytes <= 0 || sizeInBytes > 8 * 1024 * 1024)    // nothing, or far larger than any real state
+        return;
     std::unique_ptr<juce::XmlElement> xmlState (getXmlFromBinary (data, sizeInBytes));
-    if (xmlState.get() != nullptr)
-        if (xmlState->hasTagName (apvts.state.getType()))
-            apvts.replaceState (juce::ValueTree::fromXml (*xmlState));
+    if (xmlState.get() != nullptr && xmlState->hasTagName (apvts.state.getType()))
+    {
+        // States older than kStateVersion are still read as they are: parameters are only ever added, never renamed or re-scaled
+        // (tests/frozen_param_ids.txt guards that), so a missing parameter simply gets its default.
+        apvts.replaceState (juce::ValueTree::fromXml (*xmlState));
+        for (auto* p : getParameters())      // a damaged file must not put NaN or absurd values into the engine
+            if (auto* r = dynamic_cast<juce::RangedAudioParameter*> (p))
+            {
+                const float v = r->convertFrom0to1 (r->getValue());
+                const float n = r->getValue();
+                if (! std::isfinite (v) || ! std::isfinite (n))
+                    r->setValueNotifyingHost (r->getDefaultValue());
+            }
+    }
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

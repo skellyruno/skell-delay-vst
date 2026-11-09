@@ -1,5 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
+#include "SkellUi.h"
 
 class SkellLookAndFeel : public juce::LookAndFeel_V4
 {
@@ -11,6 +12,10 @@ public:
         setColour (juce::Label::textColourId, juce::Colour (0xff39ff14));
         setColour (juce::ToggleButton::tickColourId, juce::Colour (0xff39ff14));
 
+        setColour (juce::TooltipWindow::backgroundColourId, juce::Colour (0xff081204));
+        setColour (juce::TooltipWindow::textColourId, juce::Colour (0xff39ff14));
+        setColour (juce::TooltipWindow::outlineColourId, juce::Colour (0xff39ff14).withAlpha (0.4f));
+
         // preset menu
         setColour (juce::PopupMenu::backgroundColourId, juce::Colour (0xff081204));
         setColour (juce::PopupMenu::textColourId, juce::Colour (0xff39ff14));
@@ -18,6 +23,52 @@ public:
         setColour (juce::PopupMenu::highlightedTextColourId, juce::Colour (0xff040a02));
         setColour (juce::PopupMenu::headerTextColourId, juce::Colour (0xff2ccb0f));
     }
+
+    // call after SkellUi settings (contrast, text size) change
+    void refreshColours()
+    {
+        setColour (juce::PopupMenu::headerTextColourId, SkellUi::midGreen());
+        setColour (juce::TooltipWindow::outlineColourId, SkellUi::lime().withAlpha (SkellUi::highContrast ? 0.9f : 0.4f));
+        setColour (juce::TooltipWindow::backgroundColourId, SkellUi::highContrast ? juce::Colours::black : juce::Colour (0xff081204));
+    }
+
+    // Tooltips: first line = what it is, second line = the current value, larger and brighter
+    juce::TextLayout tipLayout (const juce::String& tip, float maxW)
+    {
+        const float size = SkellUi::largeText ? 15.0f : 13.0f;
+        juce::AttributedString a;
+        a.setJustification (juce::Justification::topLeft);
+        a.setWordWrap (juce::AttributedString::byWord);
+        const auto lines = juce::StringArray::fromLines (tip);
+        for (int i = 0; i < lines.size(); ++i)
+        {
+            const bool value = lines.size() > 1 && i == lines.size() - 1;
+            a.append (lines[i] + (i + 1 < lines.size() ? "\n" : ""), juce::FontOptions (value ? size + 1.0f : size).withStyle (value ? "Bold" : "Regular"),
+                      value ? juce::Colours::white : findColour (juce::TooltipWindow::textColourId));
+        }
+        juce::TextLayout l;
+        l.createLayoutWithBalancedLineLengths (a, maxW);
+        return l;
+    }
+
+    juce::Rectangle<int> getTooltipBounds (const juce::String& tip, juce::Point<int> pos, juce::Rectangle<int> area) override
+    {
+        const auto l = tipLayout (tip, 300.0f);
+        const int w = static_cast<int> (std::ceil (l.getWidth())) + 18, h = static_cast<int> (std::ceil (l.getHeight())) + 12;
+        return juce::Rectangle<int> (pos.x > area.getCentreX() ? pos.x - (w + 12) : pos.x + 24,
+                                     pos.y > area.getCentreY() ? pos.y - (h + 6) : pos.y + 6, w, h).constrainedWithin (area);
+    }
+
+    void drawTooltip (juce::Graphics& g, const juce::String& text, int width, int height) override
+    {
+        auto b = juce::Rectangle<float> (0, 0, (float) width, (float) height);
+        g.setColour (findColour (juce::TooltipWindow::backgroundColourId));
+        g.fillRoundedRectangle (b.reduced (0.5f), 4.0f);
+        g.setColour (findColour (juce::TooltipWindow::outlineColourId));
+        g.drawRoundedRectangle (b.reduced (0.5f), 4.0f, 1.0f);
+        tipLayout (text, 300.0f).draw (g, b.reduced (9.0f, 6.0f));
+    }
+
 
     void drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height,
                            float sliderPosProportional, float rotaryStartAngle,
@@ -68,7 +119,7 @@ public:
         g.fillEllipse (capX, capY, capW, capW);
 
         // Rim Border
-        g.setColour (isInteracting ? juce::Colour (0xff39ff14) : juce::Colour (0xff184a08));
+        g.setColour (isInteracting ? juce::Colour (0xff39ff14) : SkellUi::ring());
         g.drawEllipse (capX, capY, capW, capW, isInteracting ? 1.5f : 1.0f);
 
         if (isInteracting)
@@ -89,7 +140,7 @@ public:
         if (isInteracting)
         {
             juce::String valText = slider.getTextFromValue (slider.getValue());
-            float fontSize = juce::jlimit (9.0f, 13.0f, capRadius * 0.65f);
+            float fontSize = SkellUi::fit (juce::jlimit (9.0f, 13.0f, capRadius * 0.65f));
 
             g.setFont (juce::FontOptions (fontSize).withStyle ("Bold"));
             g.setColour (juce::Colour (0xffffffff));
@@ -118,7 +169,7 @@ public:
         g.setColour (juce::Colour (0xff050c03));
         g.fillRoundedRectangle (boxRect, 3.0f);
 
-        g.setColour (isChecked ? juce::Colour (0xff39ff14) : juce::Colour (0xff155e05));
+        g.setColour (isChecked ? juce::Colour (0xff39ff14) : SkellUi::dimBorder());
         g.drawRoundedRectangle (boxRect, 3.0f, 1.5f);
 
         if (isChecked)
@@ -182,14 +233,14 @@ public:
             const bool isToggle = button.getClickingTogglesState() || button.getProperties().contains ("led");
             const auto lime = juce::Colour (0xff39ff14);
             const bool bright = isActive || ! isToggle;
-            auto c = bright ? lime : juce::Colour (0xff2a7a14);
+            auto c = bright ? lime : SkellUi::dimText();
             if (shouldDrawButtonAsHighlighted) c = c.brighter (0.25f);
 
-            const float size = button.getProperties().contains ("big") ? 10.0f : 8.5f;
+            const float size = SkellUi::fit (button.getProperties().contains ("big") ? 10.0f : 8.5f);
             g.setColour (c);
             g.setFont (juce::FontOptions (size).withStyle ("Bold"));
             auto area = button.getLocalBounds();
-            g.drawText (button.getButtonText(), area, juce::Justification::centred, false);
+            g.drawFittedText (button.getButtonText(), area, juce::Justification::centred, 1, 0.6f);
 
             if (isToggle && isActive)   // small glowing bar under the text
             {
@@ -206,8 +257,8 @@ public:
             return;
         }
 
-        g.setColour (isActive ? juce::Colour (0xff040a02) : juce::Colour (0xff2ccb0f));
-        g.setFont (juce::FontOptions (8.0f).withStyle ("Bold"));
-        g.drawText (button.getButtonText(), button.getLocalBounds(), juce::Justification::centred, false);
+        g.setColour (isActive ? juce::Colour (0xff040a02) : SkellUi::midGreen());
+        g.setFont (juce::FontOptions (SkellUi::fit (8.0f)).withStyle ("Bold"));
+        g.drawFittedText (button.getButtonText(), button.getLocalBounds(), juce::Justification::centred, 1, 0.6f);
     }
 };
