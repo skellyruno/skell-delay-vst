@@ -3,10 +3,10 @@
 I am not a lawyer; these are the things to settle, with templates to start from. Have a lawyer read the EULA before you sell.
 
 ## 1. Names and codes (cannot be changed after release without breaking saved projects)
-- [ ] Company / publisher name -> `COMPANY_NAME` in `CMakeLists.txt` (currently the placeholder `MyAudioDev`). Also used in the installers and the macOS bundle id (`com.myaudiodev.skelldelay`).
-- [ ] 4-character manufacturer code -> `PLUGIN_MANUFACTURER_CODE` (currently `Mydv`). Apple wants at least one upper-case letter; register it with Apple's list so it does not collide.
+- [ ] Company / publisher name -> `COMPANY_NAME` in `CMakeLists.txt` (now "Skelly Audio"; confirm this is the legal/trading name you want shown in hosts). Also used in the installers and the macOS bundle id (`com.skellyaudio.skelldelay`).
+- [ ] 4-character manufacturer code -> `PLUGIN_MANUFACTURER_CODE` (now `Skly`, chosen for "Skelly"; check it is not already used by another Audio Unit maker). Apple wants at least one upper-case letter; register it with Apple's list so it does not collide.
 - [ ] Plugin code (currently `Dlay`) must be unique among *your* plugins; AU hosts identify the plugin by manufacturer + plugin code.
-- [ ] Product name "Skell Delay" (currently set in `CMakeLists.txt`): search the trademark registers (USPTO TESS/ EUIPO / WIPO Global Brand Database, class 9 software and class 41/9 audio) and a plain web/store search (KVR, Plugin Boutique, Gumroad, Splice) for conflicts before you print or advertise it.
+- [ ] Product name "Skell-Delay" by Skelly Audio (set in `CMakeLists.txt`): search the trademark registers (USPTO TESS/ EUIPO / WIPO Global Brand Database, class 9 software and class 41/9 audio) and a plain web/store search (KVR, Plugin Boutique, Gumroad, Splice) for conflicts before you print or advertise it.
 
 ## 2. JUCE licence (what you build with)
 Check the current terms and tiers at https://juce.com/pricing before you ship. As I understand JUCE 8: free tiers exist for small revenue; closed-source commercial products above that need a paid licence; otherwise AGPLv3 would apply to the whole plugin. Do not rely on this summary.
