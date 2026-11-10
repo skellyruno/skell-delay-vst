@@ -1,4 +1,4 @@
-THIRD-PARTY SOFTWARE IN SKELL DELAY
+THIRD-PARTY SOFTWARE IN SKELL-DELAY
 
 JUCE (https://juce.com) - audio plug-in framework.
   Used under: [ ] JUCE commercial licence (tier: ____ )   [ ] AGPLv3   <- fill in; see legal/README.md
