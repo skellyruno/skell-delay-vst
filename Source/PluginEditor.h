@@ -63,16 +63,14 @@ private:
     // Main controls. Everything else (lo-cut, attack/sustain, swirl, sauce, wider, richer,
     // mono, destiny, cheap, smooth ...) is still a working, automatable parameter at a neutral default.
     Knob time, feedback;
-    Knob pan, hiCut, tape;
+    Knob pan, hiCut, wider;
     Knob ducking, dry, wet;
 
     juce::TextButton syncBtn { "FREE" };
     juce::TextButton pingBtn { "PING" };
-    juce::TextButton feelBtn { "STR" };   // cycles straight / dotted / triplet (sync only)
 
     juce::TextButton bbdBtn { "BBD" }, killBtn { "KILL" }, bypassBtn { "BYP" }, apanBtn { "APAN" };
     juce::TextButton revBtn { "REV" };
-    juce::TextButton shimBtn { "SHIM" };
     juce::TextButton presetPrev { "<" }, presetBtn { "Init" }, presetNext { ">" };
     juce::TextButton abBtn { "A" };      // visible A/B compare
     PresetBrowser browser { audioProcessor };
@@ -91,23 +89,21 @@ private:
             g.drawRoundedRectangle (b, 6.0f, 1.0f);
         }
     };
-    AdvPanel advPanel, advPanel2, advPanel3, advPanel4;
-    int advPage = 0;      // 0 closed, 1 sound, 2 smart, 3 play, 4 view
-    juce::Label advNote[5];
+    AdvPanel advPanel, advPanel2;
+    int advPage = 0;      // 0 closed, 1 sound, 2 play
     juce::Label playNote[5];
     std::vector<juce::Label*> allLabels;
     Knob advGrain, advSpectral;
     juce::TextButton stutterBtn { "STUTTER" }, tapeStopBtn { "TAPE STOP" }, revThrowBtn { "REV THROW" }, tapBtn { "TAP" }, learnBtn { "LEARN" };
     juce::Label playInfo, hintLabel;
-    SkellTrail trail;
-    juce::TextButton hcBtn { "HIGH CONTRAST" }, bigTextBtn { "LARGE TEXT" }, undoBtn { "UNDO" }, redoBtn { "REDO" }, resetSizeBtn { "RESET SIZE" };
+    juce::TextButton hcBtn { "HIGH CONTRAST" }, bigTextBtn { "LARGE TEXT" };
     double tapTimes[6] {};  int tapCount = 0;
     double lastUndoStepMs = 0.0;
     juce::String tapInfo;
     juce::TextButton advBtn { "ADV" };
-    Knob advLoCut, advAttack, advSustain, advSwirl, advSauce, advWider, advRicher, advShimmer,
-         advElastic, advTelepathy, advEcology, advNudge, advSmooth, advDuckRel, advGateDepth, advPanDepth, advModRate, advRepeats, advFbMode;
-    juce::TextButton advCheap { "CHEAP" }, advMono { "MONO" }, advDestiny { "DESTINY" }, advPocket { "POCKET" };
+    Knob advLoCut, advAttack, advSustain, advSauce, advRicher, advShimmer,
+         advSmooth, advDuckRel, advGateDepth, advPanDepth, advModRate, advRepeats, advFbMode;
+    juce::TextButton advCheap { "CHEAP" }, advMono { "MONO" }, advDestiny { "DESTINY" };
 
     bool timeIsSync = false;
 
