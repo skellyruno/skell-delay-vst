@@ -6,9 +6,9 @@
   #define BuildDir "..\..\build"
 #endif
 [Setup]
-AppName=Skell Delay
+AppName=Skell-Delay
 AppVersion={#AppVersion}
-AppPublisher=MyAudioDev
+AppPublisher=Skelly Audio
 DefaultDirName={commoncf64}\VST3
 DisableDirPage=yes
 DisableProgramGroupPage=yes
@@ -21,5 +21,5 @@ SolidCompression=yes
 LicenseFile=..\..\legal\EULA.txt
 [Files]
 ; the .vst3 is a folder bundle
-Source: "{#BuildDir}\DelayPlugin_artefacts\Release\VST3\Skell Delay.vst3\*"; DestDir: "{commoncf64}\VST3\Skell Delay.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#BuildDir}\DelayPlugin_artefacts\Release\VST3\Skell-Delay.vst3\*"; DestDir: "{commoncf64}\VST3\Skell-Delay.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\..\docs\MANUAL.md"; DestDir: "{commonappdata}\Skell-Delay"; Flags: ignoreversion
