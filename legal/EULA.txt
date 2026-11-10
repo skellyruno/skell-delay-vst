@@ -1,6 +1,6 @@
-SKELL DELAY - END USER LICENCE AGREEMENT (TEMPLATE - have a lawyer review before use)
+SKELL-DELAY - END USER LICENCE AGREEMENT (TEMPLATE - have a lawyer review before use)
 
-1. Licence. [Company] ("we") grants you a non-exclusive, non-transferable licence to install and use Skell Delay (the "Software") on [number] computers that you own or control, for personal or commercial music production.
+1. Licence. Skelly Audio ("we") grants you a non-exclusive, non-transferable licence to install and use Skell-Delay (the "Software") on [number] computers that you own or control, for personal or commercial music production.
 2. Your music is yours. Audio you create using the Software belongs to you. You may release it commercially without paying us further.
 3. Restrictions. You may not copy, sell, rent, share or sublicense the Software or its licence key, reverse engineer it (except where the law says you may), or remove notices from it.
 4. Presets and demos. The factory presets and demo files may be used in your own music. They may not be redistributed as a preset pack or sample library.
