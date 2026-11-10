@@ -14,12 +14,12 @@ What was verified automatically (headless, Linux, no audio device) and what stil
 ## Not verified here (needs you)
 1. **Listen.** Nothing has been auditioned. Use each preset on real vocals in Ableton, Logic, FL Studio, Reaper, Cubase, Pro Tools (AAX is not built).
 2. **Real CMake build on Windows and macOS** (`.github/workflows/release.yml` does it; it has not been run). The CMake `SKELL_BUILD_TESTS` target has also not been built; the same tests were built and run with a hand-made harness.
-3. **pluginval, strictness 10**, VST3 and AU (the workflow runs it). Also `auval -v aufx Dlay Mydv` on macOS.
+3. **pluginval, strictness 10**, VST3 and AU (the workflow runs it). Also `auval -v aufx Dlay Skly` on macOS.
 4. **Code signing and notarisation** (needs your Apple Developer ID and a Windows signing certificate; see `installer/`).
 5. **Decisions in `legal/`**: company name, 4-letter manufacturer code, licence tier, trademark search.
 6. **Beta** (see `beta/`).
 
 ## Before the first public build
-- Replace the placeholder `COMPANY_NAME` and `PLUGIN_MANUFACTURER_CODE` in `CMakeLists.txt` (they cannot change after release without breaking saved projects).
+- Confirm `COMPANY_NAME` ("Skelly Audio") and `PLUGIN_MANUFACTURER_CODE` ("Skly") in `CMakeLists.txt`; they cannot change after release without breaking saved projects.
 - Bump `VERSION` in `CMakeLists.txt`; the installers read it.
 - Run the whole `tests/` folder one more time and keep `frozen_param_ids.txt` in step (add new parameters; never change old ones).
