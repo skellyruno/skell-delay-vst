@@ -5,7 +5,7 @@
 1. Put the plugin on a vocal or instrument track as an insert, or on a send.
 2. Click the preset name in the middle (or `<` `>`) and pick something. The browser plays each preset as you select it.
 3. Set **TIME**, **FEEDBACK** and **WET** until it sits right. **DUCKER** lowers the echoes while you are singing so the words stay clear.
-4. Click **ADV** to open more controls. It cycles through four pages and then closes.
+4. Click **ADV** to open more controls. It cycles through two pages (Sound and Play) and then closes.
 5. Hover any control for a description and its current value.
 
 Handy: double-click a knob to reset it. Hold **Shift** while dragging for fine control. Right-click (or press Enter on a focused knob) to type an exact value such as `250`, `1.5k`, `35%` or `1/8`. **Ctrl/Cmd+Z** undoes, **Ctrl/Cmd+Shift+Z** redoes.
