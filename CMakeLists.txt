@@ -13,17 +13,18 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(juce)
 
 juce_add_plugin(DelayPlugin
-    COMPANY_NAME "MyAudioDev"   # TODO before release: your real company name (shown in hosts) and a unique 4-char manufacturer code
+    COMPANY_NAME "Skelly Audio"
+    BUNDLE_ID com.skellyaudio.skelldelay
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE
     NEEDS_MIDI_OUTPUT FALSE
     IS_MIDI_EFFECT FALSE
-    EDITOR_WANTS_KEYBOARD_FOCUS FALSE
+    EDITOR_WANTS_KEYBOARD_FOCUS TRUE      # preset search, typed values and Ctrl/Cmd+Z need keystrokes
     COPY_PLUGIN_AFTER_BUILD TRUE
-    PLUGIN_MANUFACTURER_CODE Mydv
+    PLUGIN_MANUFACTURER_CODE Skly
     PLUGIN_CODE Dlay
     FORMATS VST3 AU
-    PRODUCT_NAME "Skell Delay"
+    PRODUCT_NAME "Skell-Delay"
 )
 
 juce_generate_juce_header(DelayPlugin)
