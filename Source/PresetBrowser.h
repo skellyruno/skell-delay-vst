@@ -33,7 +33,7 @@ public:
             chip[i].getProperties().set ("led", true);
             chip[i].onClick = [this, i] { activeChip = i; applyFilter(); };
             chip[i].setTitle (juce::String ("Filter ") + chipNames[i]);
-            addAndMakeVisible (chip[i]);
+            if (i == 0 || i == 1 || i == kChips - 1) addAndMakeVisible (chip[i]);   // ALL, FAV, USER; category chips stay as hidden filters
         }
         chip[0].setToggleState (true, juce::dontSendNotification);
 
@@ -45,7 +45,7 @@ public:
         list.setTitle ("Presets");
         addAndMakeVisible (list);
 
-        for (auto* b : { &randBtn, &saveBtn, &delBtn, &closeBtn, &undoBtn, &redoBtn, &keepTime, &keepMix })
+        for (auto* b : { &saveBtn, &delBtn, &closeBtn })
         {
             b->getProperties().set ("flat", true);
             addAndMakeVisible (b);
@@ -73,7 +73,6 @@ public:
         amount.setColour (juce::Slider::backgroundColourId, juce::Colour (0xff102408));
         amount.setTitle ("Randomise amount");
         amount.onValueChange = [this] { repaint(); };
-        addAndMakeVisible (amount);
 
         setWantsKeyboardFocus (true);
         setTitle ("Preset browser");
@@ -105,9 +104,6 @@ public:
         g.fillRoundedRectangle (b, 6.0f);
         g.setColour (SkellUi::lime().withAlpha (SkellUi::highContrast ? 0.9f : 0.35f));
         g.drawRoundedRectangle (b, 6.0f, 1.0f);
-        g.setColour (SkellUi::lime());
-        g.setFont (juce::FontOptions (SkellUi::fit (8.5f)).withStyle ("Bold"));
-        g.drawText ("AMOUNT " + juce::String (juce::roundToInt (amount.getValue() * 100.0)) + "%", amountLabel, juce::Justification::centredLeft, false);
     }
 
     void resized() override
@@ -116,26 +112,15 @@ public:
         auto top = r.removeFromTop (22);
         search.setBounds (top.removeFromLeft (150));
         top.removeFromLeft (6);
-        const int cw = top.getWidth() / kChips;
-        for (int i = 0; i < kChips; ++i) chip[i].setBounds (top.removeFromLeft (cw));
+        const int cw = 64;
+        for (int i : { 0, 1, kChips - 1 }) chip[i].setBounds (top.removeFromLeft (cw));
         r.removeFromTop (6);
         auto right = r.removeFromRight (196);
         r.removeFromRight (8);
         list.setBounds (r);
 
-        randBtn.setBounds (right.removeFromTop (22));
-        right.removeFromTop (4);
-        amountLabel = right.removeFromTop (12);
-        amount.setBounds (right.removeFromTop (16));
-        right.removeFromTop (4);
-        auto row = right.removeFromTop (20);
-        keepTime.setBounds (row.removeFromLeft (96));  keepMix.setBounds (row.removeFromRight (96));
-        right.removeFromTop (8);
-        row = right.removeFromTop (20);
-        saveBtn.setBounds (row.removeFromLeft (96));   delBtn.setBounds (row.removeFromRight (96));
-        right.removeFromTop (4);
-        row = right.removeFromTop (20);
-        undoBtn.setBounds (row.removeFromLeft (96));   redoBtn.setBounds (row.removeFromRight (96));
+        auto row = right.removeFromTop (22);
+        saveBtn.setBounds (row.removeFromLeft (92));   delBtn.setBounds (row.removeFromRight (92));
         right.removeFromTop (8);
         closeBtn.setBounds (right.removeFromTop (22));
     }
