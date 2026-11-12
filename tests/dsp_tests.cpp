@@ -1480,6 +1480,52 @@ int main()
         Rig off; CHECK (off.proc.getSmartStatus (0).text.isEmpty() && off.proc.getSmartStatus (1).text.isEmpty() && off.proc.getSmartStatus (2).text.isEmpty(), "nothing is said about features that are off");
     }
 
+    std::printf("56) Every preset: loud input, then silence: no denormals, no DC, wet limiter holds, tail fades\n");
+    {
+        Rig r;
+        const int np = r.proc.getNumPrograms();
+        std::vector<float> in1 ((size_t) 48000), in2 ((size_t) 48000);
+        unsigned seed = 7;
+        for (size_t i = 0; i < in1.size(); ++i)
+        {
+            const float env = i < 24000 ? 1.0f : 0.0f;   // half a second of near full-scale noise, then silence
+            seed = seed * 1664525u + 1013904223u;  in1[i] = ((seed >> 8) / 8388608.0f - 1.0f) * 0.9f * env;
+            seed = seed * 1664525u + 1013904223u;  in2[i] = ((seed >> 8) / 8388608.0f - 1.0f) * 0.9f * env;
+        }
+        const std::vector<float> silence (in1.size(), 0.0f);
+        bool noDenormal = true, noDc = true, noClip = true, fades = true;
+        for (int p = 0; p < np; ++p)
+        {
+            r.proc.setCurrentProgram (p);
+            r.proc.prepareToPlay (SR, 512);
+            r.run (in1, in2, oL, oR);
+            float worst = 0;
+            for (size_t i = 0; i < oL.size(); ++i) worst = std::max ({ worst, std::abs (oL[i]), std::abs (oR[i]) });
+            float firstSec = 0, lastSec = 0;
+            for (int k = 0; k < 20; ++k)   // 20 s of silence
+            {
+                r.run (silence, silence, oL, oR);
+                if (k == 0) firstSec = rms (oL, 0, oL.size());
+                if (k == 19) lastSec = rms (oL, 0, oL.size());
+                for (size_t i = 0; i < oL.size(); ++i)
+                {
+                    noDenormal = noDenormal && std::fpclassify (oL[i]) != FP_SUBNORMAL && std::fpclassify (oR[i]) != FP_SUBNORMAL;
+                    worst = std::max ({ worst, std::abs (oL[i]), std::abs (oR[i]) });
+                }
+            }
+            double mean = 0;  for (float v : oL) mean += v;  mean /= (double) oL.size();
+            const bool hold = r.proc.apvts.getRawParameterValue ("FEEDBACK")->load() > 0.97f;   // an intentionally endless wash
+            if (std::abs (mean) > 1e-3) { noDc = false;  std::printf("   preset %d (%s): DC %.5f\n", p, r.proc.getProgramName (p).toRawUTF8(), mean); }
+            // dry (at most the input, 0.9) plus a wet signal held below the limiter ceiling (-0.4 dBFS = 0.955)
+            if (worst > 0.9f + 0.96f)   { noClip = false; std::printf("   preset %d (%s): peak %.3f\n", p, r.proc.getProgramName (p).toRawUTF8(), worst); }
+            if (! hold && lastSec > 0.5f * firstSec && lastSec > 1e-4f) { fades = false;  std::printf("   preset %d (%s): tail %.5f -> %.5f over 20 s\n", p, r.proc.getProgramName (p).toRawUTF8(), firstSec, lastSec); }
+        }
+        CHECK (noDenormal, "no denormal samples in any preset's tail");
+        CHECK (noDc, "no DC offset left in any preset's tail");
+        CHECK (noClip, "dry plus limited wet never exceeds the limiter ceiling");
+        CHECK (fades, "every preset's tail keeps decaying (halves within 20 s)");
+    }
+
     std::printf("\n%s (%d failure%s)\n", failures == 0 ? "ALL PASSED" : "SOME FAILED", failures, failures == 1 ? "" : "s");
     return failures == 0 ? 0 : 1;
 }
