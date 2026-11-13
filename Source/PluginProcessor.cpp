@@ -158,7 +158,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout DelayAudioProcessor::createP
     return { params.begin(), params.end() };
 }
 
-const juce::String DelayAudioProcessor::getName() const { return JucePlugin_Name; }
+const juce::String DelayAudioProcessor::getName() const { return "Skell-Delay"; }
 bool DelayAudioProcessor::acceptsMidi() const { return false; }
 bool DelayAudioProcessor::producesMidi() const { return false; }
 bool DelayAudioProcessor::isMidiEffect() const { return false; }
