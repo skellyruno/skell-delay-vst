@@ -33,6 +33,18 @@ jobs:
         shell: bash
         run: ctest --test-dir build -C Release --output-on-failure --timeout 1800
 
+      - name: Preserve CTest failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SkellDelay-CTest-Diagnostics-${{ matrix.name }}
+          path: |
+            build/Testing/Temporary/LastTest.log
+            build/Testing/Temporary/LastTestsFailed.log
+            build/Testing/Temporary/CTestCostData.txt
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: pluginval (strictness 10)
         shell: bash
         run: |
