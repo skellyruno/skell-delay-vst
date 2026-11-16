@@ -5,6 +5,7 @@
 #include <cmath>
 #include <array>
 #include <functional>
+#include <memory>
 #include <thread>
 #include <chrono>
 #include "OnsetDetector.h"
@@ -21,12 +22,23 @@ static int failures = 0;
 
 struct Rig
 {
-    DelayAudioProcessor proc;
+    // The DSP suite has dozens of Rig locals in main(). Keep each test harness small
+    // and put the heavyweight processor on the heap to avoid a >1 MB MSVC stack frame.
+    std::unique_ptr<DelayAudioProcessor> ownedProcessor;
+    DelayAudioProcessor& proc;
+
     Rig()
+        : ownedProcessor (std::make_unique<DelayAudioProcessor>()), proc (*ownedProcessor)
     {
         proc.setRateAndBufferSizeDetails (SR, 512);
         proc.prepareToPlay (SR, 512);
     }
+
+    Rig (const Rig&) = delete;
+    Rig& operator= (const Rig&) = delete;
+    Rig (Rig&&) = delete;
+    Rig& operator= (Rig&&) = delete;
+
     void set (const char* id, float v)
     {
         auto* p = dynamic_cast<juce::RangedAudioParameter*> (proc.apvts.getParameter (id));
@@ -48,6 +60,8 @@ struct Rig
         }
     }
 };
+
+static_assert (sizeof (Rig) <= 64, "Rig must stay lightweight; DelayAudioProcessor belongs on the heap");
 
 static std::vector<int> peaks (const std::vector<float>& x, float thresh)
 {
