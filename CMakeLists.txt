@@ -81,6 +81,12 @@ if(SKELL_BUILD_TESTS)
         target_include_directories(${t} PRIVATE Source)
         target_compile_definitions(${t} PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
         target_link_libraries(${t} PRIVATE DelayAssets juce::juce_audio_utils juce::juce_dsp PUBLIC juce::juce_recommended_config_flags)
+        if(MSVC AND "${t}" STREQUAL "dsp_tests")
+            # Keep symbols for the Windows-only pre-main crash investigation without
+            # changing the production VST3 target or its release optimization settings.
+            target_compile_options(${t} PRIVATE "$<$<CONFIG:Release>:/Zi>")
+            target_link_options(${t} PRIVATE "$<$<CONFIG:Release>:/DEBUG:FULL>")
+        endif()
         add_test(NAME ${t} COMMAND ${t} WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     endforeach()
 endif()

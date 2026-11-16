@@ -73,6 +73,17 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: Preserve Windows DSP executable and symbols
+        if: failure() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: SkellDelay-DSP-Debug-Symbols-Windows
+          path: |
+            build/dsp_tests_artefacts/Release/dsp_tests.exe
+            build/dsp_tests_artefacts/Release/dsp_tests.pdb
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: pluginval (strictness 10)
         shell: bash
         run: |
