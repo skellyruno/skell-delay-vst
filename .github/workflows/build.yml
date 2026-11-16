@@ -41,6 +41,20 @@ jobs:
           ctest --test-dir build -C Release --output-on-failure
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # Keep crash/test evidence even when the release gate fails. This never
+      # uploads an installable plugin; the VST3 artifact remains success-only.
+      - name: Preserve CTest failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SkellDelay-CTest-Diagnostics-Windows
+          path: |
+            build/Testing/Temporary/LastTest.log
+            build/Testing/Temporary/LastTestsFailed.log
+            build/Testing/Temporary/CTestCostData.txt
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Verify exactly one Windows VST3 bundle and binary
         shell: pwsh
         run: |
