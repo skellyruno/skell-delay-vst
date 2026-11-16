@@ -37,7 +37,7 @@ jobs:
         run: |
           $dumpDir = Join-Path $env:RUNNER_TEMP 'SkellDelayCrashDumps'
           New-Item -ItemType Directory -Force -Path $dumpDir | Out-Null
-          $key = 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\Windows Error Reporting\\LocalDumps\\dsp_tests.exe'
+          $key = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\dsp_tests.exe'
           try {
             New-Item -Path $key -Force | Out-Null
             New-ItemProperty -Path $key -Name DumpFolder -PropertyType ExpandString -Value $dumpDir -Force | Out-Null
