@@ -136,7 +136,7 @@ public:
         right.removeFromTop (4);
         randBtn.setBounds (right.removeFromTop (18));
         right.removeFromTop (3);
-        amountLabel = right.removeFromTop (10);
+        amountLabel = right.removeFromTop (14);
         amount.setBounds (right.removeFromTop (14));
         right.removeFromTop (3);
         auto keepRow = right.removeFromTop (18);
