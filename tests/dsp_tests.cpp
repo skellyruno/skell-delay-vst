@@ -1379,8 +1379,18 @@ int main()
         {   // an old state: only a few parameters, no UI, no version
             juce::XmlElement x ("Parameters");  auto* c = x.createNewChildElement ("PARAM");  c->setAttribute ("id", "FEEDBACK");  c->setAttribute ("value", 0.6);
             juce::MemoryBlock mb; DelayAudioProcessor::copyXmlToBinary (x, mb);
-            Rig y; y.proc.setStateInformation (mb.getData(), (int) mb.getSize());
-            CHECK (std::abs (y.proc.apvts.getRawParameterValue ("FEEDBACK")->load() - 0.6f) < 1e-3f && std::abs (y.proc.apvts.getRawParameterValue ("WET")->load() - 0.5f) < 0.51f, "an old state with few parameters loads, the rest keep sane values");
+            Rig y;
+            for (auto* id : { "SYNC", "DESTINY", "REVERSE", "MONO", "BBD", "POCKET", "STUTTER", "TAPESTOP" })
+                y.set (id, 1.0f);   // prove that parameters absent from the legacy state are actively reset
+            y.proc.setStateInformation (mb.getData(), (int) mb.getSize());
+            const auto value = [&y] (const char* id) { return y.proc.apvts.getRawParameterValue (id)->load(); };
+            CHECK (std::abs (value ("FEEDBACK") - 0.6f) < 1e-3f && std::abs (value ("WET") - 1.0f) < 1e-3f,
+                   "legacy state restores saved values and defaults missing float parameters");
+            CHECK (value ("SYNC") < 0.1f && value ("DESTINY") < 0.1f && value ("REVERSE") < 0.1f,
+                   "legacy state resets missing sync, destiny and reverse switches");
+            CHECK (value ("MONO") < 0.1f && value ("BBD") < 0.1f && value ("POCKET") < 0.1f
+                   && value ("STUTTER") < 0.1f && value ("TAPESTOP") < 0.1f,
+                   "legacy state resets missing mono, BBD, pocket and performance switches");
             std::vector<float> in (48000, 0.3f), a, b; y.run (in, in, a, b);
             bool fin = true; for (float v : a) if (! std::isfinite (v)) fin = false;
             CHECK (fin, "and plays normally");
