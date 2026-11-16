@@ -71,6 +71,8 @@ static void impulse (std::vector<float>& L, std::vector<float>& R, int n, float 
 
 int main()
 {
+    // Flush each test marker immediately so native crashes can be localized from CTest logs.
+    std::setvbuf (stdout, nullptr, _IONBF, 0);
     juce::ScopedJuceInitialiser_GUI init;
     std::vector<float> iL, iR, oL, oR;
 
