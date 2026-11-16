@@ -72,7 +72,10 @@ class ReleaseGateTests(unittest.TestCase):
         self.cmake = self.root / "CMakeLists.txt"
         self.cmake.write_text(
             'project(DelayPlugin VERSION 1.0.0 LANGUAGES C CXX)\n'
-            'juce_add_plugin(DelayPlugin COMPANY_NAME "Skelly Audio" PRODUCT_NAME "Skell-Delay")\n',
+            'juce_add_plugin(DelayPlugin\n'
+            '  COMPANY_NAME "Skelly Audio"\n'
+            '  PRODUCT_NAME "Skell-Delay"\n'
+            ')\n',
             encoding="utf-8")
         self.bundle = self.root / "build/VST3/Skell-Delay.vst3"
         self.module = self.bundle / GATE.MODULE
