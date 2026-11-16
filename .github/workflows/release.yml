@@ -102,8 +102,16 @@ jobs:
           echo "validating $VST3"
           case "${{ runner.os }}" in
             Windows) ./pluginval.exe --strictness-level 10 --validate-in-process --skip-gui-tests "$VST3" ;;
-            macOS)   ./pluginval.app/Contents/MacOS/pluginval --strictness-level 10 --validate-in-process "$VST3"
-                     AU=$(find build -name "*.component" -maxdepth 6 | head -1); [ -n "$AU" ] && ./pluginval.app/Contents/MacOS/pluginval --strictness-level 10 --validate-in-process "$AU" ;;
+            macOS)
+                     ./pluginval.app/Contents/MacOS/pluginval --strictness-level 10 --validate-in-process "$VST3"
+                     AU=$(find build -name "*.component" -maxdepth 6 | head -1)
+                     [ -n "$AU" ] || { echo "Missing AU component bundle"; exit 1; }
+                     AU_ROOT="$HOME/Library/Audio/Plug-Ins/Components"
+                     mkdir -p "$AU_ROOT"
+                     rm -rf "$AU_ROOT/Skell-Delay.component"
+                     ditto "$AU" "$AU_ROOT/Skell-Delay.component"
+                     killall -9 AudioComponentRegistrar 2>/dev/null || true
+                     auval -v aufx Dlay Skly ;;
             Linux)   xvfb-run -a ./pluginval --strictness-level 10 --validate-in-process "$VST3" ;;
           esac
 
@@ -156,7 +164,42 @@ jobs:
           $metadataPath = Join-Path $bundle.FullName 'Contents/Resources/moduleinfo.json'
           if (-not (Test-Path -LiteralPath $metadataPath)) { throw "Missing VST3 module metadata: $metadataPath" }
 
-          # System.Text.Json is strict by default: malformed JSON and trailing commas fail closed.
+          # JUCE/Steinberg may emit trailing commas in moduleinfo.json. Normalize
+          # only that extension, write strict JSON back into the bundle, then reparse
+          # with default options. Other malformed JSON still fails closed.
+          $relaxedOptions = [System.Text.Json.JsonDocumentOptions]::new()
+          $relaxedOptions.AllowTrailingCommas = $true
+
+          # Regression probe: a comma inside a string is data, not a trailing comma.
+          $probe = [System.Text.Json.JsonDocument]::Parse('{"text":"comma,}","values":[1,],}', $relaxedOptions)
+          try {
+            $probeJson = [System.Text.Json.JsonSerializer]::Serialize($probe.RootElement)
+          } finally {
+            $probe.Dispose()
+          }
+          $probeStrict = [System.Text.Json.JsonDocument]::Parse($probeJson)
+          try {
+            if ($probeStrict.RootElement.GetProperty('text').GetString() -ne 'comma,}') {
+              throw 'VST3 metadata normalization changed string content'
+            }
+          } finally {
+            $probeStrict.Dispose()
+          }
+
+          $sourceJson = [System.IO.File]::ReadAllText($metadataPath)
+          $relaxedDocument = [System.Text.Json.JsonDocument]::Parse($sourceJson, $relaxedOptions)
+          try {
+            $normalizedJson = [System.Text.Json.JsonSerializer]::Serialize($relaxedDocument.RootElement)
+          } finally {
+            $relaxedDocument.Dispose()
+          }
+          [System.IO.File]::WriteAllText(
+            $metadataPath,
+            $normalizedJson + [Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false)
+          )
+
+          # The packaged metadata must now pass the strict RFC 8259 parser.
           $document = [System.Text.Json.JsonDocument]::Parse([System.IO.File]::ReadAllText($metadataPath))
           try {
             $metadata = $document.RootElement
