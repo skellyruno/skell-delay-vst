@@ -71,9 +71,15 @@ static void impulse (std::vector<float>& L, std::vector<float>& R, int n, float 
 
 int main()
 {
-    // Flush each test marker immediately so native crashes can be localized from CTest logs.
+    // Narrow down the Windows-only early crash without changing production code.
+    std::fprintf (stderr, "[dsp_tests] entered main\n");
+    std::fflush (stderr);
     std::setvbuf (stdout, nullptr, _IONBF, 0);
+    std::fprintf (stderr, "[dsp_tests] stdout buffering configured\n");
+    std::fflush (stderr);
     juce::ScopedJuceInitialiser_GUI init;
+    std::fprintf (stderr, "[dsp_tests] JUCE GUI initializer completed\n");
+    std::fflush (stderr);
     std::vector<float> iL, iR, oL, oR;
 
     std::printf("1) Normal feedback, 100 ms, fb 0.5, impulse L+R\n");
