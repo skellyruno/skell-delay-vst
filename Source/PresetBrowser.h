@@ -45,11 +45,17 @@ public:
         list.setTitle ("Presets");
         addAndMakeVisible (list);
 
-        for (auto* b : { &saveBtn, &delBtn, &closeBtn })
+        for (auto* b : { &saveBtn, &delBtn, &closeBtn, &randBtn, &undoBtn, &redoBtn, &keepTime, &keepMix })
         {
             b->getProperties().set ("flat", true);
             addAndMakeVisible (b);
         }
+        addAndMakeVisible (amount);
+        randBtn.setTitle ("Randomise presets");
+        undoBtn.setTitle ("Undo preset change");
+        redoBtn.setTitle ("Redo preset change");
+        keepTime.setTitle ("Keep delay time when randomising");
+        keepMix.setTitle ("Keep wet mix when randomising");
         keepTime.setClickingTogglesState (true);  keepMix.setClickingTogglesState (true);
         keepTime.getProperties().set ("led", true);  keepMix.getProperties().set ("led", true);
         randBtn.onClick  = [this] { proc.randomise (static_cast<float> (amount.getValue()), keepTime.getToggleState(), keepMix.getToggleState()); changed(); };
@@ -104,6 +110,9 @@ public:
         g.fillRoundedRectangle (b, 6.0f);
         g.setColour (SkellUi::lime().withAlpha (SkellUi::highContrast ? 0.9f : 0.35f));
         g.drawRoundedRectangle (b, 6.0f, 1.0f);
+        g.setColour (SkellUi::dimText());
+        g.setFont (juce::FontOptions (SkellUi::fit (8.5f)).withStyle ("Bold"));
+        g.drawText ("RANDOMISE AMOUNT", amountLabel, juce::Justification::centredLeft, false);
     }
 
     void resized() override
@@ -119,10 +128,27 @@ public:
         r.removeFromRight (8);
         list.setBounds (r);
 
-        auto row = right.removeFromTop (22);
-        saveBtn.setBounds (row.removeFromLeft (92));   delBtn.setBounds (row.removeFromRight (92));
-        right.removeFromTop (8);
-        closeBtn.setBounds (right.removeFromTop (22));
+        auto row = right.removeFromTop (20);
+        saveBtn.setBounds (row.removeFromLeft (92));
+        delBtn.setBounds (row.removeFromRight (92));
+        right.removeFromTop (4);
+        closeBtn.setBounds (right.removeFromTop (18));
+        right.removeFromTop (4);
+        randBtn.setBounds (right.removeFromTop (18));
+        right.removeFromTop (3);
+        amountLabel = right.removeFromTop (14);
+        amount.setBounds (right.removeFromTop (14));
+        right.removeFromTop (3);
+        auto keepRow = right.removeFromTop (18);
+        const int half = (keepRow.getWidth() - 4) / 2;
+        keepTime.setBounds (keepRow.removeFromLeft (half));
+        keepRow.removeFromLeft (4);
+        keepMix.setBounds (keepRow);
+        right.removeFromTop (3);
+        auto historyRow = right.removeFromTop (18);
+        undoBtn.setBounds (historyRow.removeFromLeft (half));
+        historyRow.removeFromLeft (4);
+        redoBtn.setBounds (historyRow);
     }
 
     bool keyPressed (const juce::KeyPress& k) override
