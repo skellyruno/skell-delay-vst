@@ -4,6 +4,7 @@ import json
 import pathlib
 import struct
 import tempfile
+import shutil
 import unittest
 
 SCRIPT = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "verify_windows_vst3.py"
@@ -81,8 +82,11 @@ class ReleaseGateTests(unittest.TestCase):
         self.module.write_bytes(pe())
         self.info.write_text(render(), encoding="utf-8")
 
-    def run_stage(self, **kw):
-        return GATE.stage(self.bundle, self.root / "package", self.cmake,
+    def run_stage(self):
+        package = self.root / "package"
+        if package.exists():
+            shutil.rmtree(package)
+        return GATE.stage(self.bundle, package, self.cmake,
                           "1" * 40, "2" * 40, "43999999999", 10)
 
     def test_normalizes_only_trailing_commas_outside_strings(self):
@@ -143,9 +147,11 @@ class ReleaseGateTests(unittest.TestCase):
         (self.bundle.parent / "Other.vst3").mkdir()
         with self.assertRaises(GATE.PackageError): self.run_stage()
         (self.bundle.parent / "Other.vst3").rmdir()
-        (self.root / "package").mkdir()
-        (self.root / "package/stale.txt").write_text("stale")
-        with self.assertRaises(GATE.PackageError): self.run_stage()
+        package = self.root / "package"
+        package.mkdir()
+        (package / "stale.txt").write_text("stale")
+        with self.assertRaises(GATE.PackageError):
+            GATE.stage(self.bundle, package, self.cmake, "1" * 40, "2" * 40, "439", 10)
 
     def test_requires_full_commits_and_pluginval_ten(self):
         with self.assertRaises(GATE.PackageError):
