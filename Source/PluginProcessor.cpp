@@ -1821,15 +1821,13 @@ void DelayAudioProcessor::setStateInformation (const void* data, int sizeInBytes
     {
         // States older than kStateVersion are still read as they are: parameters are only ever added, never renamed or re-scaled
         // (tests/frozen_param_ids.txt guards that), so a missing parameter simply gets its default.
-        apvts.replaceState (juce::ValueTree::fromXml (*xmlState));
-        for (auto* p : getParameters())      // a damaged file must not put NaN or absurd values into the engine
-            if (auto* r = dynamic_cast<juce::RangedAudioParameter*> (p))
-            {
-                const float v = r->convertFrom0to1 (r->getValue());
-                const float n = r->getValue();
-                if (! std::isfinite (v) || ! std::isfinite (n))
-                    r->setValueNotifyingHost (r->getDefaultValue());
-            }
+        const auto restoredState = juce::ValueTree::fromXml (*xmlState);
+        apvts.replaceState (restoredState);
+
+        // Older or partial states may omit parameters. Reapply through the parameter API
+        // so missing values return to their declared defaults and hostile values are clamped.
+        applyTree (restoredState);
+        undoManager.clearUndoHistory();
     }
 }
 
