@@ -1,36 +1,80 @@
-name: Build VST3 Plugin
+name: Build and validate Windows VST3
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'CMakeLists.txt'
+      - 'Source/**'
+      - 'tests/**'
+      - '.github/workflows/build.yml'
+
+permissions:
+  contents: read
+
+# Only superseded PR builds may be cancelled; manual runs are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  build:
-    name: Build on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest]
-
+  windows-vst3:
+    runs-on: windows-latest
+    timeout-minutes: 50
     steps:
-    - name: Checkout repository recursively
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-    - name: Configure CMake
-      run: >
-        cmake -B build
-        -DCMAKE_BUILD_TYPE=Release
-        -DCSOUND_BUILD_STATIC=ON
+      - name: Configure MSVC release and DSP tests
+        shell: pwsh
+        run: cmake -S . -B build -A x64 -DSKELL_BUILD_TESTS=ON
 
-    - name: Build Plugin Target
-      run: cmake --build build --config Release
+      - name: Build VST3 and DSP test executables
+        shell: pwsh
+        run: cmake --build build --config Release --parallel 2
 
-    # Package build outputs as downloadable artifacts
-    - name: Upload Windows VST3 Artifact
-      if: runner.os == 'Windows'
-      uses: actions/upload-artifact@v4
-      with:
-        name: VST3-Windows
-        path: build/DelayPlugin_artefacts/Release/VST3/*.vst3
+      - name: Run DSP and realtime regression tests
+        shell: pwsh
+        run: |
+          ctest --test-dir build -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # Keep crash/test evidence even when the release gate fails. This never
+      # uploads an installable plugin; the VST3 artifact remains success-only.
+      - name: Preserve CTest failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SkellDelay-CTest-Diagnostics-Windows
+          path: |
+            build/Testing/Temporary/LastTest.log
+            build/Testing/Temporary/LastTestsFailed.log
+            build/Testing/Temporary/CTestCostData.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Verify exactly one Windows VST3 bundle and binary
+        shell: pwsh
+        run: |
+          $root = 'build/DelayPlugin_artefacts/Release/VST3'
+          if (-not (Test-Path -LiteralPath $root)) { throw "Missing VST3 output directory: $root" }
+          $bundles = @(Get-ChildItem -LiteralPath $root -Directory -Filter '*.vst3')
+          if ($bundles.Count -ne 1) { throw "Expected exactly one VST3 bundle; found $($bundles.Count)" }
+          $binaries = @(Get-ChildItem -LiteralPath $bundles[0].FullName -Recurse -File -Filter '*.vst3')
+          if ($binaries.Count -ne 1) { throw "Expected one Windows VST3 binary; found $($binaries.Count)" }
+          $bytes = [System.IO.File]::ReadAllBytes($binaries[0].FullName)
+          if ($bytes.Length -lt 2 -or $bytes[0] -ne 77 -or $bytes[1] -ne 90) { throw 'VST3 binary is not a Windows PE (MZ)' }
+          $hash = (Get-FileHash -LiteralPath $binaries[0].FullName -Algorithm SHA256).Hash
+          Write-Host "Bundle: $($bundles[0].Name)"
+          Write-Host "Binary SHA256: $hash"
+          "VST3_BUNDLE=$($bundles[0].FullName)" >> $env:GITHUB_ENV
+
+      - name: Upload full installable Windows VST3 bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: SkellDelay-Windows-VST3-${{ github.sha }}
+          path: build/DelayPlugin_artefacts/Release/VST3/*.vst3/
+          if-no-files-found: error
+          retention-days: 7
