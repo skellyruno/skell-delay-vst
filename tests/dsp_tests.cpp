@@ -5,6 +5,7 @@
 #include <cmath>
 #include <array>
 #include <functional>
+#include <memory>
 #include <thread>
 #include <chrono>
 #include "OnsetDetector.h"
@@ -21,12 +22,23 @@ static int failures = 0;
 
 struct Rig
 {
-    DelayAudioProcessor proc;
+    // The DSP suite has dozens of Rig locals in main(). Keep each test harness small
+    // and put the heavyweight processor on the heap to avoid a >1 MB MSVC stack frame.
+    std::unique_ptr<DelayAudioProcessor> ownedProcessor;
+    DelayAudioProcessor& proc;
+
     Rig()
+        : ownedProcessor (std::make_unique<DelayAudioProcessor>()), proc (*ownedProcessor)
     {
         proc.setRateAndBufferSizeDetails (SR, 512);
         proc.prepareToPlay (SR, 512);
     }
+
+    Rig (const Rig&) = delete;
+    Rig& operator= (const Rig&) = delete;
+    Rig (Rig&&) = delete;
+    Rig& operator= (Rig&&) = delete;
+
     void set (const char* id, float v)
     {
         auto* p = dynamic_cast<juce::RangedAudioParameter*> (proc.apvts.getParameter (id));
@@ -48,6 +60,8 @@ struct Rig
         }
     }
 };
+
+static_assert (sizeof (Rig) <= 64, "Rig must stay lightweight; DelayAudioProcessor belongs on the heap");
 
 static std::vector<int> peaks (const std::vector<float>& x, float thresh)
 {
@@ -71,7 +85,15 @@ static void impulse (std::vector<float>& L, std::vector<float>& R, int n, float 
 
 int main()
 {
+    // Narrow down the Windows-only early crash without changing production code.
+    std::fprintf (stderr, "[dsp_tests] entered main\n");
+    std::fflush (stderr);
+    std::setvbuf (stdout, nullptr, _IONBF, 0);
+    std::fprintf (stderr, "[dsp_tests] stdout buffering configured\n");
+    std::fflush (stderr);
     juce::ScopedJuceInitialiser_GUI init;
+    std::fprintf (stderr, "[dsp_tests] JUCE GUI initializer completed\n");
+    std::fflush (stderr);
     std::vector<float> iL, iR, oL, oR;
 
     std::printf("1) Normal feedback, 100 ms, fb 0.5, impulse L+R\n");
@@ -1379,8 +1401,18 @@ int main()
         {   // an old state: only a few parameters, no UI, no version
             juce::XmlElement x ("Parameters");  auto* c = x.createNewChildElement ("PARAM");  c->setAttribute ("id", "FEEDBACK");  c->setAttribute ("value", 0.6);
             juce::MemoryBlock mb; DelayAudioProcessor::copyXmlToBinary (x, mb);
-            Rig y; y.proc.setStateInformation (mb.getData(), (int) mb.getSize());
-            CHECK (std::abs (y.proc.apvts.getRawParameterValue ("FEEDBACK")->load() - 0.6f) < 1e-3f && std::abs (y.proc.apvts.getRawParameterValue ("WET")->load() - 0.5f) < 0.51f, "an old state with few parameters loads, the rest keep sane values");
+            Rig y;
+            for (auto* id : { "SYNC", "DESTINY", "REVERSE", "MONO", "BBD", "POCKET", "STUTTER", "TAPESTOP" })
+                y.set (id, 1.0f);   // prove that parameters absent from the legacy state are actively reset
+            y.proc.setStateInformation (mb.getData(), (int) mb.getSize());
+            const auto value = [&y] (const char* id) { return y.proc.apvts.getRawParameterValue (id)->load(); };
+            CHECK (std::abs (value ("FEEDBACK") - 0.6f) < 1e-3f && std::abs (value ("WET") - 1.0f) < 1e-3f,
+                   "legacy state restores saved values and defaults missing float parameters");
+            CHECK (value ("SYNC") < 0.1f && value ("DESTINY") < 0.1f && value ("REVERSE") < 0.1f,
+                   "legacy state resets missing sync, destiny and reverse switches");
+            CHECK (value ("MONO") < 0.1f && value ("BBD") < 0.1f && value ("POCKET") < 0.1f
+                   && value ("STUTTER") < 0.1f && value ("TAPESTOP") < 0.1f,
+                   "legacy state resets missing mono, BBD, pocket and performance switches");
             std::vector<float> in (48000, 0.3f), a, b; y.run (in, in, a, b);
             bool fin = true; for (float v : a) if (! std::isfinite (v)) fin = false;
             CHECK (fin, "and plays normally");

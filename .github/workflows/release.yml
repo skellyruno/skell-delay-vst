@@ -29,9 +29,60 @@ jobs:
       - name: Build
         run: cmake --build build --config Release --parallel 2
 
+      # Capture a Windows minidump if dsp_tests crashes before main() or before
+      # its own diagnostic prints. This is best-effort and never blocks tests.
+      - name: Enable Windows DSP crash dumps
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dumpDir = Join-Path $env:RUNNER_TEMP 'SkellDelayCrashDumps'
+          New-Item -ItemType Directory -Force -Path $dumpDir | Out-Null
+          $key = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\dsp_tests.exe'
+          try {
+            New-Item -Path $key -Force | Out-Null
+            New-ItemProperty -Path $key -Name DumpFolder -PropertyType ExpandString -Value $dumpDir -Force | Out-Null
+            New-ItemProperty -Path $key -Name DumpType -PropertyType DWord -Value 1 -Force | Out-Null
+            New-ItemProperty -Path $key -Name DumpCount -PropertyType DWord -Value 2 -Force | Out-Null
+            Write-Host "Configured Windows Error Reporting minidumps: $dumpDir"
+          } catch {
+            Write-Warning "Could not configure Windows Error Reporting minidumps; continuing without them: $($_.Exception.Message)"
+          }
+
       - name: Run the tests (DSP, stress, real-time)
         shell: bash
         run: ctest --test-dir build -C Release --output-on-failure --timeout 1800
+
+      - name: Preserve CTest failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SkellDelay-CTest-Diagnostics-${{ matrix.name }}
+          path: |
+            build/Testing/Temporary/LastTest.log
+            build/Testing/Temporary/LastTestsFailed.log
+            build/Testing/Temporary/CTestCostData.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Preserve Windows DSP crash dump
+        if: failure() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: SkellDelay-DSP-CrashDump-Windows
+          path: ${{ runner.temp }}/SkellDelayCrashDumps/*.dmp
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Preserve Windows DSP executable and symbols
+        if: failure() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: SkellDelay-DSP-Debug-Symbols-Windows
+          path: |
+            build/dsp_tests_artefacts/Release/dsp_tests.exe
+            build/dsp_tests_artefacts/Release/dsp_tests.pdb
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: pluginval (strictness 10)
         shell: bash
