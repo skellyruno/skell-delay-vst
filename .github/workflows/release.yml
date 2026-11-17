@@ -170,10 +170,24 @@ jobs:
           $relaxedOptions = [System.Text.Json.JsonDocumentOptions]::new()
           $relaxedOptions.AllowTrailingCommas = $true
 
+          function ConvertTo-StrictJson {
+            param([System.Text.Json.JsonElement]$Element)
+            $buffer = [System.IO.MemoryStream]::new()
+            $writer = [System.Text.Json.Utf8JsonWriter]::new($buffer)
+            try {
+              $Element.WriteTo($writer)
+              $writer.Flush()
+              return [System.Text.Encoding]::UTF8.GetString($buffer.ToArray())
+            } finally {
+              $writer.Dispose()
+              $buffer.Dispose()
+            }
+          }
+
           # Regression probe: a comma inside a string is data, not a trailing comma.
           $probe = [System.Text.Json.JsonDocument]::Parse('{"text":"comma,}","values":[1,],}', $relaxedOptions)
           try {
-            $probeJson = [System.Text.Json.JsonSerializer]::Serialize($probe.RootElement)
+            $probeJson = ConvertTo-StrictJson $probe.RootElement
           } finally {
             $probe.Dispose()
           }
@@ -189,7 +203,7 @@ jobs:
           $sourceJson = [System.IO.File]::ReadAllText($metadataPath)
           $relaxedDocument = [System.Text.Json.JsonDocument]::Parse($sourceJson, $relaxedOptions)
           try {
-            $normalizedJson = [System.Text.Json.JsonSerializer]::Serialize($relaxedDocument.RootElement)
+            $normalizedJson = ConvertTo-StrictJson $relaxedDocument.RootElement
           } finally {
             $relaxedDocument.Dispose()
           }
