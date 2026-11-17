@@ -166,13 +166,12 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Upload macOS and Linux plugin artifacts
+      - name: Upload macOS and Linux VST3-only artifacts
         if: runner.os != 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: SkellDelay-${{ matrix.name }}
           path: |
-            dist/**
             build/**/*.vst3
           if-no-files-found: ignore
           retention-days: 7
