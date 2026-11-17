@@ -1,5 +1,17 @@
 # Release checklist
 
+> **Evidence status (2026-11-15): BLOCKED for release.** The historical test results below are not proof that current `main` or any open PR passes. A previously reported Windows CI run compiled but failed DSP/stress tests, while Linux/macOS pluginval also failed. Treat all previous test counts and CPU estimates as historical claims until reproduced on a pinned commit. Do not publish an installer or mark a VST3 as validated while these gates fail.
+
+## Required evidence for a release candidate
+- Record the exact source commit, CI run URL, OS/architecture, compiler, JUCE version and build configuration.
+- Require green Windows CMake/VST3 build **and** all CTest DSP, stress, compatibility and real-time tests; preserve `LastTest.log` as a failure artifact when red.
+- Require pluginval on the actual packaged VST3; retain its strictness, host and result. Other-platform failures must be triaged, not silently ignored.
+- Verify the packaged `.vst3` contains the expected `Contents/x86_64-win/*.vst3` binary, and record its SHA-256 and installer SHA-256.
+- Run FL Studio load/save/reopen, automation recall, preset recall, bypass, mono/stereo, 44.1/48/96 kHz, compact UI/menu and high-DPI interaction checks on Windows. Record screenshots only from the actual compiled editor.
+- Preserve the last working binary and immutable source revision before replacing any installed release; mark unavailable backups as **UNAVAILABLE**.
+- Block release on failing tests, missing host verification, missing artifact checksums or unresolved licensing/identity decisions.
+
+
 What was verified automatically (headless, Linux, no audio device) and what still needs a person, a machine or a certificate.
 
 ## Verified (see tests/)
