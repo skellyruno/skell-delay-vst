@@ -70,6 +70,11 @@ def unique_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
+def reject_non_finite_constant(token: str) -> Any:
+    """Reject Python json's non-standard NaN/Infinity extensions."""
+    raise PackageError(f"Non-finite JSON numeric constant is forbidden: {token}")
+
+
 def identity_from_cmake(path: Path) -> dict[str, str]:
     text = path.read_text(encoding="utf-8-sig")
     project = re.search(r"(?m)^\s*project\s*\(\s*DelayPlugin\s+VERSION\s+([^\s)]+)", text)
@@ -94,7 +99,8 @@ def read_metadata(path: Path) -> tuple[dict[str, Any], str, bool]:
     original = path.read_text(encoding="utf-8-sig")
     normalized = strip_trailing_commas(original)
     try:
-        data = json.loads(normalized, object_pairs_hook=unique_keys)
+        data = json.loads(normalized, object_pairs_hook=unique_keys,
+                          parse_constant=reject_non_finite_constant)
     except (json.JSONDecodeError, PackageError) as exc:
         raise PackageError(f"moduleinfo.json invalid after safe JUCE normalization: {exc}") from exc
     if not isinstance(data, dict):
