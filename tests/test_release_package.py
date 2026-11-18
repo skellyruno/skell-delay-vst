@@ -124,6 +124,22 @@ class ReleaseGateTests(unittest.TestCase):
         self.info.write_text('{"Name":"Skell-Delay","Name":"Other"}', encoding="utf-8")
         with self.assertRaises(GATE.PackageError): self.run_stage()
 
+    def test_non_finite_json_numbers_fail_without_rewriting_source(self):
+        # Python's json module accepts NaN and +/-Infinity unless parse_constant
+        # is overridden. JUCE module metadata must remain standards-compliant JSON.
+        for token in ("NaN", "Infinity", "-Infinity"):
+            with self.subTest(token=token):
+                raw = trailing_commas(
+                    json.dumps(metadata()).replace('"URL": ""', f'"URL": {token}'))
+                self.info.write_text(raw, encoding="utf-8")
+                before = self.info.read_bytes()
+                with self.assertRaisesRegex(
+                    GATE.PackageError, "Non-finite JSON numeric constant is forbidden"
+                ):
+                    self.run_stage()
+                # A rejected package must never be normalized in place.
+                self.assertEqual(self.info.read_bytes(), before)
+
     def test_invalid_json_fails(self):
         self.info.write_text('{"Name":"Skell-Delay","Classes":[,]}', encoding="utf-8")
         with self.assertRaises(GATE.PackageError): self.run_stage()
