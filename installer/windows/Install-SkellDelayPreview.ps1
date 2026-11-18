@@ -26,10 +26,12 @@ function Get-FullPath {
 function Assert-NoReparseAncestors {
     param([Parameter(Mandatory = $true)][string]$Path)
     $cursor = Get-FullPath $Path
-    while ($cursor -and (Test-Path -LiteralPath $cursor)) {
-        $item = Get-Item -LiteralPath $cursor -Force
-        if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
-            throw "Refusing a reparse-point path component: $cursor"
+    while ($cursor) {
+        if (Test-Path -LiteralPath $cursor) {
+            $item = Get-Item -LiteralPath $cursor -Force
+            if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "Refusing a reparse-point path component: $cursor"
+            }
         }
         $parent = [System.IO.Directory]::GetParent($cursor)
         if ($null -eq $parent) { break }
@@ -179,8 +181,12 @@ function Assert-ValidBundle {
     $machine = [System.BitConverter]::ToUInt16($binary, $peOffset + 4)
     $optionalMagic = [System.BitConverter]::ToUInt16($binary, $peOffset + 24)
     $characteristics = [System.BitConverter]::ToUInt16($binary, $peOffset + 22)
-    if ($machine -ne 0x8664 -or $optionalMagic -ne 0x20B -or ($characteristics -band 0x2000) -eq 0) {
-        throw 'VST3 module must be an AMD64 PE32+ DLL.'
+    $sectionCount = [System.BitConverter]::ToUInt16($binary, $peOffset + 6)
+    $optionalHeaderSize = [System.BitConverter]::ToUInt16($binary, $peOffset + 20)
+    if ($machine -ne 0x8664 -or $optionalMagic -ne 0x20B -or ($characteristics -band 0x2000) -eq 0 -or
+        $sectionCount -eq 0 -or $optionalHeaderSize -lt 0x70 -or
+        $peOffset + 24 + $optionalHeaderSize -gt $binary.Length) {
+        throw 'VST3 module must be a structurally valid AMD64 PE32+ DLL.'
     }
 
     return [pscustomobject]@{
@@ -190,6 +196,7 @@ function Assert-ValidBundle {
         ModuleInfoPath = $moduleInfo
         BinarySha256 = (Get-FileHash -LiteralPath $module -Algorithm SHA256).Hash.ToLowerInvariant()
         ModuleInfoSha256 = (Get-FileHash -LiteralPath $moduleInfo -Algorithm SHA256).Hash.ToLowerInvariant()
+        ClassIds = @($cids | Sort-Object -CaseSensitive)
         BinarySize = [long](Get-Item -LiteralPath $module).Length
     }
 }
@@ -207,9 +214,10 @@ function Assert-PreviewPackage {
     $bundle = Join-Path $root $BundleName
     $bundleCheck = Assert-ValidBundle $bundle
     $manifest = Read-StrictJson (Join-Path $root 'build-info.json')
-    if ($manifest.product -cne $Product -or $manifest.vendor -cne $Vendor -or
+    if ($manifest.schema_version -ne 1 -or $manifest.product -cne $Product -or $manifest.vendor -cne $Vendor -or
         $manifest.version -cne $bundleCheck.Version -or $manifest.format -cne 'VST3' -or
-        $manifest.platform -cne 'windows-x64' -or $manifest.release_status -cne 'preview-only') {
+        $manifest.platform -cne 'windows-x64' -or $manifest.release_status -cne 'preview-only' -or
+        $manifest.installer.scope -cne 'per-user private preview') {
         throw 'Build manifest product, version, platform or preview status is invalid.'
     }
     if ([string]$manifest.source_commit -notmatch '^[0-9a-f]{40}$' -or
@@ -234,6 +242,10 @@ function Assert-PreviewPackage {
         $manifest.moduleinfo.sha256 -cne $bundleCheck.ModuleInfoSha256 -or
         $manifest.moduleinfo.strict_json -ne $true) {
         throw 'Build manifest moduleinfo hash or strict-JSON assertion does not match.'
+    }
+    $manifestCids = @($manifest.moduleinfo.unique_class_ids | ForEach-Object { ([string]$_).ToLowerInvariant() } | Sort-Object -CaseSensitive)
+    if (($manifestCids -join '|') -cne ($bundleCheck.ClassIds -join '|')) {
+        throw 'Build manifest component/controller CIDs do not match moduleinfo.json.'
     }
 
     $actualBundleRecords = @(Get-FileRecords $bundle)
@@ -422,6 +434,17 @@ if ([string]::IsNullOrWhiteSpace($BackupRoot)) {
 $InstallRoot = Get-FullPath $InstallRoot
 $BackupRoot = Get-FullPath $BackupRoot
 $TargetPath = Join-Path $InstallRoot $BundleName
+$trimChars = [char[]]@([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+$installVolume = [System.IO.Path]::GetPathRoot($InstallRoot)
+$backupVolume = [System.IO.Path]::GetPathRoot($BackupRoot)
+if ($InstallRoot.TrimEnd($trimChars) -ceq $installVolume.TrimEnd($trimChars) -or
+    $BackupRoot.TrimEnd($trimChars) -ceq $backupVolume.TrimEnd($trimChars)) {
+    throw 'Refusing a filesystem-root install or backup destination.'
+}
+$installPrefix = $InstallRoot.TrimEnd($trimChars) + [System.IO.Path]::DirectorySeparatorChar
+if ($BackupRoot.StartsWith($installPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw 'BackupRoot must be outside the VST3 scan/install directory.'
+}
 Assert-NoReparseAncestors $InstallRoot
 Assert-NoReparseAncestors $BackupRoot
 if (Test-Path -LiteralPath $TargetPath) { Assert-NoReparsePoints $TargetPath }
@@ -455,6 +478,11 @@ if (-not [string]::IsNullOrWhiteSpace($RollbackBackup)) {
 }
 
 $package = Assert-PreviewPackage $PackagePath
+$packagePrefix = $package.Root.TrimEnd($trimChars) + [System.IO.Path]::DirectorySeparatorChar
+if ($InstallRoot.TrimEnd($trimChars) -ceq $package.Root.TrimEnd($trimChars) -or
+    $InstallRoot.StartsWith($packagePrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw 'InstallRoot must not be the preview package directory or a child of it.'
+}
 $currentVersion = $null
 $currentDigest = $null
 if (Test-Path -LiteralPath $TargetPath -PathType Container) {

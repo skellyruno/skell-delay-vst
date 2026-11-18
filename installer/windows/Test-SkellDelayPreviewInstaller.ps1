@@ -75,6 +75,27 @@ try {
     if ($second.Status -cne 'AlreadyCurrent') { throw 'Repeated install was not idempotent.' }
     Write-Host 'PASS: idempotent install'
 
+    $driveRoot = [System.IO.Path]::GetPathRoot($env:TEMP)
+    Invoke-ExpectedFailure -Label 'filesystem-root install destination' -Action {
+        & $Installer -PackagePath $PackagePath -InstallRoot $driveRoot -BackupRoot $backupRoot -Confirm:$false
+    }
+    if (Test-Path -LiteralPath (Join-Path $driveRoot 'Skell-Delay.vst3')) {
+        throw 'Filesystem-root rejection unexpectedly created a plugin directory.'
+    }
+
+    $unsafePackage = Join-Path $testRoot 'unsafe-path-package'
+    Copy-Package -Source $PackagePath -Destination $unsafePackage
+    $unsafeSumPath = Join-Path $unsafePackage 'SHA256SUMS.txt'
+    $unsafeLines = @(Get-Content -LiteralPath $unsafeSumPath)
+    $unsafeLines = @($unsafeLines | ForEach-Object {
+        if ($_ -match '^([0-9a-f]{64})  build-info\.json$') { "$($Matches[1])  ../build-info.json" } else { $_ }
+    })
+    [System.IO.File]::WriteAllLines($unsafeSumPath, $unsafeLines, [System.Text.Encoding]::ASCII)
+    Invoke-ExpectedFailure -Label 'checksum path traversal' -Action {
+        & $Installer -PackagePath $unsafePackage -InstallRoot $installRoot -BackupRoot $backupRoot -Confirm:$false
+    }
+    if ((Get-TreeDigest $target) -cne $originalTree) { throw 'Unsafe checksum path changed the installed bundle.' }
+
     $tamperedPackage = Join-Path $testRoot 'tampered-package'
     Copy-Package -Source $PackagePath -Destination $tamperedPackage
     $tamperedModule = Join-Path $tamperedPackage 'Skell-Delay.vst3/Contents/x86_64-win/Skell-Delay.vst3'
