@@ -22,6 +22,14 @@ Artifact record returned by GitHub Actions:
 - Name: `SkellDelay-Windows-VST3-edf71f9cdfce6257402b4ed5044aa019ae888720`
 - Size: 4,749,067 bytes
 - GitHub artifact SHA-256: `f94cf91a4d5f38f217ff7fe972c347a8602ed89804a119f8bc8a30a3e7b85634`
+- VST3 module: 8,908,800 bytes; SHA-256 `d486f20c0bd64077a70a2392a3c8730b308ec66534bdcd084802013cf427525b`.
+- Strict moduleinfo JSON SHA-256: `77289d5d36b77400c8222241923fa0a86b4a256f21275736673703d77223e0f5`.
+- Preview installer script SHA-256: `f72529e4b2aef73869039a8bb1c710752727d18442f762bb39cd60c4098ef8ca`.
+- Preview install guide SHA-256: `c2b709d826a4f665ff35d4027710fce4a0170c059c03360a60541f48d58ed817`.
+
+The downloaded ZIP was independently checked in this run: archive SHA-256 matched GitHub's artifact digest, ZIP integrity passed, all five `SHA256SUMS.txt` entries matched, and the module had an MZ header with an AMD64 PE32+ header. The package's `build-info.json` explicitly marks it `preview-only`.
+
+**Metadata blocker found in the actual artifact:** `moduleinfo.json` has empty Factory Info `URL` and `E-Mail` values. Do not invent these. The owner must approve the public website and support contact before the metadata is populated.
 
 **Scope of this evidence:** the successful run is on a draft PR branch, not yet on `main`. It proves that the Windows preview build and automated install/update/rollback tests passed on GitHub's runner. It does not prove that a signed installer exists or that the plugin is ready for public sale. The artifact is temporary CI output and must be downloaded and independently retained before its expiry if it is to serve as a durable owner backup.
 
@@ -42,6 +50,7 @@ Any CPU percentage or latency measured on a hosted CI runner is not a substitute
 2. **FL Studio host acceptance:** scan/load the VST3; exercise automation, preset changes, save/reopen, project reopen and editor open/close; confirm no missing-plugin or state-recall regression. Record FL Studio version and actual evidence.
 3. **Target-machine performance:** measure CPU, latency and stability on the intended Windows hardware and audio buffer settings.
 4. **Windows signing:** provide and protect the owner-controlled signing certificate; run the approved tag-only signing path; verify Authenticode publisher, timestamp and final installer hash. The successful preview run did not sign an installer.
+5. **Vendor contact metadata:** approve a public URL and support e-mail for the VST3 Factory Info fields; both are blank in the verified preview artifact. Do not publish guessed contact details.
 5. **Publisher and identity decisions:** confirm the legal/trading company name, four-character manufacturer code `Skly`, unique plugin code `Dlay`, product name and trademark clearance before the first public release. Do not change host identity codes after release.
 6. **Third-party licensing:** confirm the applicable JUCE commercial/AGPL tier, Steinberg VST3 SDK terms, and any required attribution or splash-screen obligations. Do not rely on the repository's informal legal summary as legal advice.
 7. **Asset rights:** confirm commercial redistribution rights for `Source/Assets/skell_bg.png` and any other artwork or third-party assets.
