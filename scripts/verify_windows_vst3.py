@@ -75,8 +75,12 @@ def identity_from_cmake(path: Path) -> dict[str, str]:
     project = re.search(r"(?m)^\s*project\s*\(\s*DelayPlugin\s+VERSION\s+([^\s)]+)", text)
     vendor = re.search(r'(?m)^\s*COMPANY_NAME\s+"([^"]+)"', text)
     product = re.search(r'(?m)^\s*PRODUCT_NAME\s+"([^"]+)"', text)
-    if not (project and vendor and product):
-        raise PackageError("CMakeLists.txt is missing DelayPlugin VERSION, COMPANY_NAME or PRODUCT_NAME")
+    plugin = re.search(r"(?is)juce_add_plugin\s*\(\s*DelayPlugin\b(.*?)\)", text)
+    formats = re.search(r"(?im)^\s*FORMATS\s+([^\r\n)]+)", plugin.group(1)) if plugin else None
+    if not (project and vendor and product and plugin and formats):
+        raise PackageError("CMakeLists.txt is missing DelayPlugin VERSION, COMPANY_NAME, PRODUCT_NAME or FORMATS")
+    if formats.group(1).split() != ["VST3"]:
+        raise PackageError("Skell Delay release target must declare FORMATS VST3 only (no AU or Standalone targets)")
     version = project.group(1)
     if not VERSION_RE.fullmatch(version):
         raise PackageError(f"Invalid CMake semantic version: {version!r}")

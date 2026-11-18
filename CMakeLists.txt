@@ -23,7 +23,7 @@ juce_add_plugin(DelayPlugin
     COPY_PLUGIN_AFTER_BUILD FALSE
     PLUGIN_MANUFACTURER_CODE Skly
     PLUGIN_CODE Dlay
-    FORMATS VST3 AU
+    FORMATS VST3
     PRODUCT_NAME "Skell-Delay"
 )
 

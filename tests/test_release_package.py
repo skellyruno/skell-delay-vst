@@ -75,6 +75,7 @@ class ReleaseGateTests(unittest.TestCase):
             'juce_add_plugin(DelayPlugin\n'
             '  COMPANY_NAME "Skelly Audio"\n'
             '  PRODUCT_NAME "Skell-Delay"\n'
+            '  FORMATS VST3\n'
             ')\n',
             encoding="utf-8")
         self.bundle = self.root / "build/VST3/Skell-Delay.vst3"
@@ -91,6 +92,15 @@ class ReleaseGateTests(unittest.TestCase):
             shutil.rmtree(package)
         return GATE.stage(self.bundle, package, self.cmake,
                           "1" * 40, "2" * 40, "43999999999", 10)
+
+    def test_cmake_release_target_is_windows_vst3_only(self):
+        original = self.cmake.read_text(encoding="utf-8")
+        self.assertEqual(GATE.identity_from_cmake(self.cmake)["version"], "1.0.0")
+        for formats in ("VST3 AU", "VST3 Standalone", "VST3 VST2"):
+            with self.subTest(formats=formats):
+                self.cmake.write_text(original.replace("FORMATS VST3", f"FORMATS {formats}"), encoding="utf-8")
+                with self.assertRaisesRegex(GATE.PackageError, "VST3 only"):
+                    GATE.identity_from_cmake(self.cmake)
 
     def test_normalizes_only_trailing_commas_outside_strings(self):
         src = trailing_commas(json.dumps({"s": 'comma ,} and "quote"', "a": [1, 2]}))
