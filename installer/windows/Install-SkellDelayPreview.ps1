@@ -442,8 +442,9 @@ if ($InstallRoot.TrimEnd($trimChars) -ceq $installVolume.TrimEnd($trimChars) -or
     throw 'Refusing a filesystem-root install or backup destination.'
 }
 $installPrefix = $InstallRoot.TrimEnd($trimChars) + [System.IO.Path]::DirectorySeparatorChar
-if ($BackupRoot.StartsWith($installPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
-    throw 'BackupRoot must be outside the VST3 scan/install directory.'
+if ($BackupRoot.TrimEnd($trimChars).Equals($InstallRoot.TrimEnd($trimChars), [System.StringComparison]::OrdinalIgnoreCase) -or
+    $BackupRoot.StartsWith($installPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw 'BackupRoot must be separate from and outside the VST3 scan/install directory.'
 }
 Assert-NoReparseAncestors $InstallRoot
 Assert-NoReparseAncestors $BackupRoot

@@ -76,10 +76,16 @@ try {
     Write-Host 'PASS: idempotent install'
 
     $driveRoot = [System.IO.Path]::GetPathRoot($env:TEMP)
+    $rootTarget = Join-Path $driveRoot 'Skell-Delay.vst3'
+    $rootExisted = Test-Path -LiteralPath $rootTarget -PathType Container
+    $rootDigest = if ($rootExisted) { Get-TreeDigest $rootTarget } else { $null }
     Invoke-ExpectedFailure -Label 'filesystem-root install destination' -Action {
         & $Installer -PackagePath $PackagePath -InstallRoot $driveRoot -BackupRoot $backupRoot -Confirm:$false
     }
-    if (Test-Path -LiteralPath (Join-Path $driveRoot 'Skell-Delay.vst3')) {
+    if ($rootExisted -and (Get-TreeDigest $rootTarget) -cne $rootDigest) {
+        throw 'Filesystem-root rejection changed a pre-existing plugin directory.'
+    }
+    if (-not $rootExisted -and (Test-Path -LiteralPath $rootTarget)) {
         throw 'Filesystem-root rejection unexpectedly created a plugin directory.'
     }
 
