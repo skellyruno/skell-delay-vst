@@ -5,7 +5,7 @@ I am not a lawyer; these are the things to settle, with templates to start from.
 ## 1. Names and codes (cannot be changed after release without breaking saved projects)
 - [ ] Company / publisher name -> `COMPANY_NAME` in `CMakeLists.txt` (now "Skelly Audio"; confirm this is the legal/trading name you want shown in hosts). Also used in the installers and the macOS bundle id (`com.skellyaudio.skelldelay`).
 - [ ] 4-character manufacturer code -> `PLUGIN_MANUFACTURER_CODE` (now `Skly`, chosen for "Skelly"; check it against Steinberg's current VST3 manufacturer-code guidance and existing vendor codes).
-- [ ] Plugin code (currently `Dlay`) must be unique among *your* plugins; AU hosts identify the plugin by manufacturer + plugin code.
+- [ ] Plugin code (currently `Dlay`) must be unique among *your* plugins. Keep the manufacturer/plugin identity codes stable after the first release so existing host projects and plugin identities remain compatible.
 - [ ] Product name "Skell-Delay" by Skelly Audio (set in `CMakeLists.txt`): search the trademark registers (USPTO TESS/ EUIPO / WIPO Global Brand Database, class 9 software and class 41/9 audio) and a plain web/store search (KVR, Plugin Boutique, Gumroad, Splice) for conflicts before you print or advertise it.
 
 ## 2. JUCE licence (what you build with)
