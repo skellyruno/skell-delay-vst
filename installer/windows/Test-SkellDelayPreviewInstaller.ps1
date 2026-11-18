@@ -115,16 +115,100 @@ try {
 
     $updatePackage = Join-Path $testRoot 'update-package'
     Copy-Package -Source $PackagePath -Destination $updatePackage
+    # Simulate a real new plugin package, not just changed build provenance.
+    # The installer correctly treats identical VST3 bundle bytes as AlreadyCurrent.
+    $moduleRelative = 'Skell-Delay.vst3/Contents/Resources/moduleinfo.json'
+    $moduleInfoPath = Join-Path $updatePackage 'Skell-Delay.vst3/Contents/Resources/moduleinfo.json'
+    $moduleInfo = Get-Content -LiteralPath $moduleInfoPath -Raw | ConvertFrom-Json -AsHashtable -Depth 100
+    $moduleInfo['Version'] = '1.0.1'
+    foreach ($class in @($moduleInfo['Classes'])) {
+        $class['Version'] = '1.0.1'
+    }
+    $moduleInfoJson = ($moduleInfo | ConvertTo-Json -Depth 100) + [System.Environment]::NewLine
+    [System.IO.File]::WriteAllText($moduleInfoPath, $moduleInfoJson, [System.Text.UTF8Encoding]::new($false))
+    $newModuleInfoHash = (Get-FileHash -LiteralPath $moduleInfoPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $newModuleInfoSize = [long](Get-Item -LiteralPath $moduleInfoPath).Length
+
     $manifestPath = Join-Path $updatePackage 'build-info.json'
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json -AsHashtable -Depth 100
-    $manifest['ci_test_update_marker'] = 'installer integration test only'
+    $manifest['version'] = '1.0.1'
+    $manifest['moduleinfo']['sha256'] = $newModuleInfoHash
+    $moduleRecordFound = $false
+    foreach ($record in $manifest['bundle_files']) {
+        if ([string]$record['path'] -ceq $moduleRelative) {
+            $record['sha256'] = $newModuleInfoHash
+            $record['size_bytes'] = $newModuleInfoSize
+            $moduleRecordFound = $true
+        }
+    }
+    if (-not $moduleRecordFound) { throw 'Update fixture could not find moduleinfo in the bundle manifest.' }
     $updatedJson = ($manifest | ConvertTo-Json -Depth 100) + [System.Environment]::NewLine
     [System.IO.File]::WriteAllText($manifestPath, $updatedJson, [System.Text.UTF8Encoding]::new($false))
+
     $sumPath = Join-Path $updatePackage 'SHA256SUMS.txt'
     $newManifestHash = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
     $sumLines = @(Get-Content -LiteralPath $sumPath)
     $sumLines = @($sumLines | ForEach-Object {
-        if ($_ -match '^[0-9a-f]{64}  build-info\.json$') { "$newManifestHash  build-info.json" } else { $_ }
+        if ($_ -match '^([0-9a-f]{64})  (.+)
+    $update = & $Installer -PackagePath $updatePackage -InstallRoot $installRoot -BackupRoot $backupRoot -Confirm:$false
+    if ($update.Status -cne 'Updated' -or [string]::IsNullOrWhiteSpace($update.BackupPath) -or
+        -not (Test-Path -LiteralPath $update.BackupPath -PathType Container)) {
+        throw 'Update did not create a verified rollback backup.'
+    }
+    $updatedTree = Get-TreeDigest $target
+    if ($updatedTree -ceq $originalTree) { throw 'Update did not change the installed package tree.' }
+    Write-Host 'PASS: update staged, swapped and backed up the previous version'
+
+    $tamperedBackup = Join-Path $testRoot 'tampered-backup'
+    Copy-Package -Source $update.BackupPath -Destination $tamperedBackup
+    $backupModule = Join-Path $tamperedBackup 'Skell-Delay.vst3/Contents/x86_64-win/Skell-Delay.vst3'
+    $backupBytes = [System.IO.File]::ReadAllBytes($backupModule)
+    $backupBytes[$backupBytes.Length - 1] = $backupBytes[$backupBytes.Length - 1] -bxor 1
+    [System.IO.File]::WriteAllBytes($backupModule, $backupBytes)
+    Invoke-ExpectedFailure -Label 'tampered rollback backup' -Action {
+        & $Installer -RollbackBackup $tamperedBackup -InstallRoot $installRoot -BackupRoot $backupRoot -Confirm:$false
+    }
+    if ((Get-TreeDigest $target) -cne $updatedTree) { throw 'Tampered rollback backup changed the installed bundle.' }
+
+    $rollback = & $Installer -RollbackBackup $update.BackupPath -InstallRoot $installRoot -BackupRoot $backupRoot -Confirm:$false
+    if ($rollback.Status -cne 'RolledBack' -or (Get-TreeDigest $target) -cne $originalTree -or
+        (Get-ModuleHash $target) -cne $originalModule) {
+        throw 'Rollback did not restore the original bundle byte-for-byte.'
+    }
+    if ([string]::IsNullOrWhiteSpace($rollback.PreservedCurrentVersion) -or
+        -not (Test-Path -LiteralPath $rollback.PreservedCurrentVersion -PathType Container)) {
+        throw 'Rollback did not preserve the version it replaced.'
+    }
+    Write-Host 'PASS: rollback restored the original bundle and preserved the replaced version'
+    Write-Host 'PASS: all private-preview installer integration checks completed'
+}
+finally {
+    $safeToClean = $false
+    if (Test-Path -LiteralPath $marker -PathType Leaf) {
+        $safeToClean = ([System.IO.File]::ReadAllText($marker) -ceq $ownerToken)
+    }
+    if ($safeToClean) {
+        $reparse = @(Get-ChildItem -LiteralPath $testRoot -Force -Recurse | Where-Object {
+            ($_.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0
+        })
+        if ($reparse.Count -eq 0) {
+            Remove-Item -LiteralPath $testRoot -Recurse -Force
+        }
+        else {
+            Write-Warning "Test directory contains a reparse point and was preserved: $testRoot"
+        }
+    }
+    else {
+        Write-Warning "Test ownership marker changed; preserving test directory: $testRoot"
+    }
+}
+) {
+            $relative = $Matches[2]
+            if ($relative -ceq $moduleRelative) { "$newModuleInfoHash  $moduleRelative" }
+            elseif ($relative -ceq 'build-info.json') { "$newManifestHash  build-info.json" }
+            else { $_ }
+        }
+        else { $_ }
     })
     [System.IO.File]::WriteAllLines($sumPath, $sumLines, [System.Text.Encoding]::ASCII)
 
