@@ -6,7 +6,7 @@ The current Skell-Delay product target is **Windows x64 VST3 only**. The release
 
 - Inno Setup definition: `windows/SkellDelay.iss`
 - Build/sign script: `windows/build_installer.ps1`
-- Install destination: `C:\\Program Files\\Common Files\\VST3`
+- Install destination: `C:\Program Files\Common Files\VST3`
 - Required secrets for signing: `WIN_CERT_PFX` and `WIN_CERT_PASSWORD`
 
 Without those secrets, the workflow still compiles, runs DSP/realtime tests, validates the Windows VST3 with pluginval strictness 10, stages provenance/checksums and uploads a preview-only VST3 package. It does not claim that the package is signed.
