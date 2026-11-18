@@ -1,6 +1,6 @@
 # Release checklist
 
-What was verified automatically (headless, Linux, no audio device) and what still needs a person, a machine or a certificate.
+What was verified automatically by headless tests (no audio device) and what still needs a Windows host, a person or a certificate.
 
 ## Verified (see tests/)
 - DSP, UI-logic and compatibility tests (`tests/dsp_tests.cpp`, 206 checks), a stress/limit suite (`tests/stress_tests.cpp`, 10 checks), an allocation + CPU check (`tests/realtime_check.cpp`).
@@ -13,9 +13,9 @@ What was verified automatically (headless, Linux, no audio device) and what stil
 
 ## Not verified here (needs you)
 1. **Listen.** Nothing has been auditioned. Use each preset on real vocals in Ableton, Logic, FL Studio, Reaper, Cubase, Pro Tools (AAX is not built).
-2. **Real CMake build on Windows and macOS** (`.github/workflows/release.yml` does it; it has not been run). The CMake `SKELL_BUILD_TESTS` target has also not been built; the same tests were built and run with a hand-made harness.
-3. **pluginval, strictness 10**, VST3 and AU (the workflow runs it). Also `auval -v aufx Dlay Skly` on macOS.
-4. **Code signing and notarisation** (needs your Apple Developer ID and a Windows signing certificate; see `installer/`).
+2. **Real CMake build on Windows x64** (`.github/workflows/release.yml` does it). The current product target is Windows VST3 only; macOS/AU and Linux product builds are intentionally deferred. The CMake `SKELL_BUILD_TESTS` target must pass in the Windows workflow.
+3. **pluginval, strictness 10**, on the Windows VST3 bundle (the workflow runs it).
+4. **Windows code signing** (requires an owner-provided Windows signing certificate; see `installer/`).
 5. **Decisions in `legal/`**: company name, 4-letter manufacturer code, licence tier, trademark search.
 6. **Beta** (see `beta/`).
 

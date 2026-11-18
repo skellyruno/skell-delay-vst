@@ -4,7 +4,7 @@ I am not a lawyer; these are the things to settle, with templates to start from.
 
 ## 1. Names and codes (cannot be changed after release without breaking saved projects)
 - [ ] Company / publisher name -> `COMPANY_NAME` in `CMakeLists.txt` (now "Skelly Audio"; confirm this is the legal/trading name you want shown in hosts). Also used in the installers and the macOS bundle id (`com.skellyaudio.skelldelay`).
-- [ ] 4-character manufacturer code -> `PLUGIN_MANUFACTURER_CODE` (now `Skly`, chosen for "Skelly"; check it is not already used by another Audio Unit maker). Apple wants at least one upper-case letter; register it with Apple's list so it does not collide.
+- [ ] 4-character manufacturer code -> `PLUGIN_MANUFACTURER_CODE` (now `Skly`, chosen for "Skelly"; check it against Steinberg's current VST3 manufacturer-code guidance and existing vendor codes).
 - [ ] Plugin code (currently `Dlay`) must be unique among *your* plugins; AU hosts identify the plugin by manufacturer + plugin code.
 - [ ] Product name "Skell-Delay" by Skelly Audio (set in `CMakeLists.txt`): search the trademark registers (USPTO TESS/ EUIPO / WIPO Global Brand Database, class 9 software and class 41/9 audio) and a plain web/store search (KVR, Plugin Boutique, Gumroad, Splice) for conflicts before you print or advertise it.
 
@@ -14,8 +14,8 @@ Check the current terms and tiers at https://juce.com/pricing before you ship. A
 - [ ] Check whether your tier requires the "Made with JUCE" splash (not present in this project today).
 
 ## 3. Plugin format licences
-- [ ] VST3: the VST3 SDK licence (check the current terms with Steinberg); "VST" is a Steinberg trademark: use the logo/wording only as their guidelines allow.
-- [ ] AU: Apple's Audio Unit terms are included in the developer agreement.
+- [ ] VST3: the current product target is Windows x64 VST3 only. Check the VST3 SDK licence with Steinberg; "VST" is a Steinberg trademark, so use the logo/wording only as their guidelines allow.
+- [ ] AU/macOS: not built or shipped by the current product target. The old macOS scripts remain archived in the repository but are not part of the supported release workflow.
 - [ ] AAX (Pro Tools) is not built; it needs a separate Avid developer agreement and PACE signing.
 
 ## 4. Assets
