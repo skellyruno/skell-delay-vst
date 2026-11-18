@@ -18,3 +18,16 @@ The existing `macos/` scripts are preserved as historical source, but the curren
 ## Licensing and activation
 
 There is no copy protection yet. Before direct sales, decide whether activation is needed; a simple licence file or serial may be sufficient. Confirm the JUCE licence tier, VST3 SDK terms, artwork rights and EULA before commercial distribution.
+
+
+## Private-preview per-user install
+
+The Windows Actions preview ZIP also includes Install-SkellDelayPreview.ps1 and INSTALL_PREVIEW.md. This is the preferred route for owner testing before a signed installer is approved.
+
+- Requires PowerShell 7.
+- Defaults to %LOCALAPPDATA%\Programs\Common\VST3.
+- Supports -WhatIf, verified update backups and explicit rollback.
+- Does not write to Program Files, edit the registry or require administrator elevation.
+- The release workflow exercises fresh install, idempotence, tamper rejection, update, backup and rollback against the actual staged package.
+
+This preview helper is separate from the signed Inno Setup installer above. It is unsigned and is not a commercial release.

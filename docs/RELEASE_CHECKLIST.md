@@ -11,6 +11,11 @@ What was verified automatically by headless tests (no audio device) and what sti
 - Parameter ids, ranges and defaults are frozen in `tests/frozen_param_ids.txt`; the test fails if a released one changes.
 - About 5% of one core, everything on, optimised processor code (the JUCE objects in that build were -O1).
 
+## Automated Windows preview delivery gates
+- The Windows release workflow stages a flat VST3-only preview package with strict moduleinfo, AMD64 PE32+, provenance and a complete SHA-256 inventory.
+- The package includes the PowerShell 7 per-user preview installer and install guide; Windows CI exercises WhatIf, fresh install, idempotence, tamper rejection, update, verified backup and rollback against the staged artifact.
+- These installer tests do not substitute for FL Studio scan/load, actual audio listening, user-machine CPU/latency, code signing or owner approval.
+
 ## Not verified here (needs you)
 1. **Listen.** Nothing has been auditioned. Use each preset on real vocals in Ableton, Logic, FL Studio, Reaper, Cubase, Pro Tools (AAX is not built).
 2. **Real CMake build on Windows x64** (`.github/workflows/release.yml` does it). The current product target is Windows VST3 only; macOS/AU and Linux product builds are intentionally deferred. The CMake `SKELL_BUILD_TESTS` target must pass in the Windows workflow.

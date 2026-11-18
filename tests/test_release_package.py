@@ -114,7 +114,24 @@ class ReleaseGateTests(unittest.TestCase):
         self.assertEqual(self.info.read_bytes(), before)
         staged_info = self.root / "package/Skell-Delay.vst3" / GATE.INFO
         json.loads(staged_info.read_text(encoding="utf-8"))
-        self.assertEqual(len((self.root / "package/SHA256SUMS.txt").read_text().splitlines()), 3)
+        self.assertEqual(len((self.root / "package/SHA256SUMS.txt").read_text().splitlines()), len(result["bundle_files"]) + 3)
+        self.assertTrue((self.root / "package/Install-SkellDelayPreview.ps1").is_file())
+        self.assertTrue((self.root / "package/INSTALL_PREVIEW.md").is_file())
+        self.assertEqual(result["installer"]["script"]["path"], "Install-SkellDelayPreview.ps1")
+
+    def test_checksum_manifest_covers_every_bundle_and_distribution_file(self):
+        result = self.run_stage()
+        package = self.root / "package"
+        entries = {}
+        for line in (package / "SHA256SUMS.txt").read_text(encoding="ascii").splitlines():
+            digest, relative = line.split("  ", 1)
+            self.assertNotIn(relative, entries)
+            entries[relative] = digest
+        expected = {item["path"] for item in result["bundle_files"]}
+        expected.update({"Install-SkellDelayPreview.ps1", "INSTALL_PREVIEW.md", "build-info.json"})
+        self.assertEqual(set(entries), expected)
+        for relative, digest in entries.items():
+            self.assertEqual(GATE.sha((package / relative).read_bytes()), digest)
 
     def test_already_strict_json_is_not_rewritten(self):
         self.info.write_text(json.dumps(metadata()), encoding="utf-8")

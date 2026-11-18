@@ -12,6 +12,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+PREVIEW_INSTALLER = REPO_ROOT / "installer" / "windows" / "Install-SkellDelayPreview.ps1"
+PREVIEW_GUIDE = REPO_ROOT / "docs" / "INSTALL_PREVIEW.md"
+
 PRODUCT = "Skell-Delay"
 VENDOR = "Skelly Audio"
 MODULE = Path("Contents/x86_64-win/Skell-Delay.vst3")
@@ -208,12 +212,30 @@ def stage(source: Path, package: Path, cmake: Path, source_sha: str,
     shutil.copytree(source, staged, symlinks=False)
     check_bundle(staged)
 
+    for source_file, package_name in (
+        (PREVIEW_INSTALLER, "Install-SkellDelayPreview.ps1"),
+        (PREVIEW_GUIDE, "INSTALL_PREVIEW.md"),
+    ):
+        if not source_file.is_file():
+            raise PackageError(f"Missing private-preview distribution file: {source_file}")
+        shutil.copy2(source_file, package / package_name)
+
     info_path = staged / INFO
     metadata, normalized, changed = read_metadata(info_path)
     cids = validate_metadata(metadata, expected)
     binary_path = staged / MODULE
     binary = binary_path.read_bytes()
     validate_pe32_plus_x64(binary)
+
+    bundle_files = []
+    for path in sorted((p for p in staged.rglob("*") if p.is_file()), key=lambda p: p.relative_to(package).as_posix()):
+        relative = f"{staged.name}/{path.relative_to(staged).as_posix()}"
+        data = path.read_bytes()
+        bundle_files.append({"path": relative, "size_bytes": len(data), "sha256": sha(data)})
+    installer_path = package / "Install-SkellDelayPreview.ps1"
+    guide_path = package / "INSTALL_PREVIEW.md"
+    installer_record = {"path": installer_path.name, "sha256": sha(installer_path.read_bytes())}
+    guide_record = {"path": guide_path.name, "sha256": sha(guide_path.read_bytes())}
 
     manifest = {
         "schema_version": 1,
@@ -239,6 +261,12 @@ def stage(source: Path, package: Path, cmake: Path, source_sha: str,
             "unique_class_ids": cids,
             "normalization_applied": changed,
         },
+        "bundle_files": bundle_files,
+        "installer": {
+            "scope": "per-user private preview",
+            "script": installer_record,
+            "guide": guide_record,
+        },
         "validation": {
             "bundle_structure": "passed",
             "metadata_identity": "passed",
@@ -256,11 +284,13 @@ def stage(source: Path, package: Path, cmake: Path, source_sha: str,
     }
     manifest_text = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
     (package / "build-info.json").write_text(manifest_text, encoding="utf-8", newline="\n")
-    sums = [
-        f"{manifest['binary']['sha256']}  {manifest['binary']['path']}",
-        f"{manifest['moduleinfo']['sha256']}  {manifest['moduleinfo']['path']}",
+    sums = [f"{item['sha256']}  {item['path']}" for item in bundle_files]
+    sums.extend([
+        f"{installer_record['sha256']}  {installer_record['path']}",
+        f"{guide_record['sha256']}  {guide_record['path']}",
         f"{sha(manifest_text.encode('utf-8'))}  build-info.json",
-    ]
+    ])
+    sums.sort(key=lambda item: item.split("  ", 1)[1])
     (package / "SHA256SUMS.txt").write_text("\n".join(sums) + "\n", encoding="ascii", newline="\n")
     return manifest
 
