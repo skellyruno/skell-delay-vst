@@ -381,6 +381,20 @@ function Assert-PreviewPackage {
     [void]$expectedSumPaths.Add($juceLicenseRelative)
     [void]$expectedSumPaths.Add($vst3LicenseRelative)
     if ($legalStatus -ceq 'owner-approved') { [void]$expectedSumPaths.Add('EULA.txt') }
+
+    # The checksum list must describe every package file, not just a valid subset.
+    # This also rejects unlisted files added beneath ThirdPartyLicenses.
+    $expectedPackagePaths = [System.Collections.Generic.List[string]]::new()
+    foreach ($relative in $expectedSumPaths) { $expectedPackagePaths.Add($relative) }
+    $expectedPackagePaths.Add('SHA256SUMS.txt')
+    $expectedPackagePaths = @($expectedPackagePaths | Sort-Object -CaseSensitive)
+    $actualPackagePaths = @(Get-ChildItem -LiteralPath $root -File -Recurse -Force | ForEach-Object {
+        [System.IO.Path]::GetRelativePath($root, $_.FullName).Replace('\\', '/')
+    } | Sort-Object -CaseSensitive)
+    if (($actualPackagePaths -join '|') -cne ($expectedPackagePaths -join '|')) {
+        throw 'Package file inventory contains a missing or unlisted file.'
+    }
+
     $sumMap = [System.Collections.Generic.Dictionary[string,string]]::new([System.StringComparer]::Ordinal)
     foreach ($line in @(Get-Content -LiteralPath (Join-Path $root 'SHA256SUMS.txt'))) {
         if ($line -notmatch '^([0-9a-f]{64})  (.+)$') { throw "Malformed SHA256SUMS line: $line" }

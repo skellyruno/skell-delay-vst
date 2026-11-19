@@ -139,6 +139,14 @@ try {
     }
     if ((Get-TreeDigest $target) -cne $originalTree) { throw 'Tampered third-party notice changed the installed bundle.' }
 
+    $unexpectedNestedPackage = Join-Path $testRoot 'unexpected-nested-package'
+    Copy-Package -Source $PackagePath -Destination $unexpectedNestedPackage
+    [System.IO.File]::WriteAllText((Join-Path $unexpectedNestedPackage 'ThirdPartyLicenses/extra.txt'), 'unlisted legal payload', [System.Text.UTF8Encoding]::new($false))
+    Invoke-ExpectedFailure -Label 'unlisted nested legal payload' -Action {
+        & $Installer -PackagePath $unexpectedNestedPackage -InstallRoot $installRoot -BackupRoot $backupRoot -Confirm:$false
+    }
+    if ((Get-TreeDigest $target) -cne $originalTree) { throw 'Unlisted nested payload changed the installed bundle.' }
+
     $unexpectedPackage = Join-Path $testRoot 'unexpected-package'
     Copy-Package -Source $PackagePath -Destination $unexpectedPackage
     [System.IO.File]::WriteAllText((Join-Path $unexpectedPackage 'unexpected.txt'), 'not part of the release package', [System.Text.UTF8Encoding]::new($false))
