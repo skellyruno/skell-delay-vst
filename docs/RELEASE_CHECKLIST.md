@@ -1,30 +1,112 @@
-# Release checklist
+# Skell-Delay release checklist
 
-What was verified automatically by headless tests (no audio device) and what still needs a Windows host, a person or a certificate.
+## Latest exact-head Windows private-preview evidence — 2026-11-19
 
-## Verified (see tests/)
-- DSP, UI-logic and compatibility tests (`tests/dsp_tests.cpp`, 206 checks), a stress/limit suite (`tests/stress_tests.cpp`, 10 checks), an allocation + CPU check (`tests/realtime_check.cpp`).
-- Clean with ASan + UBSan; clean with `-Wall -Wextra -Wshadow`.
-- Every factory preset at 22.05 kHz to 192 kHz and block sizes 1 to 9000: finite, bounded, latency under 45 ms.
-- No heap allocation in `processBlock` over 4,000 blocks with every feature on and parameters moving.
-- Damaged / old / hostile saved states and preset files load safely.
-- Parameter ids, ranges and defaults are frozen in `tests/frozen_param_ids.txt`; the test fails if a released one changes.
-- About 5% of one core, everything on, optimised processor code (the JUCE objects in that build were -O1).
+Exact tested source: commit [146dc8e](https://github.com/skellyruno/skell-delay-vst/commit/146dc8e3c499da7159edbaa6528c488a69d5f5bc), on draft child PR [#19](https://github.com/skellyruno/skell-delay-vst/pull/19), stacked on draft legal-packaging PR [#18](https://github.com/skellyruno/skell-delay-vst/pull/18). The exact-head Windows workflow [#44594311690](https://github.com/skellyruno/skell-delay-vst/actions/runs/44594311690) completed successfully on 2026-11-19.
 
-## Automated Windows preview delivery gates
-- The Windows release workflow stages a flat VST3-only preview package with strict moduleinfo, AMD64 PE32+, provenance and a complete SHA-256 inventory.
-- The package includes the PowerShell 7 per-user preview installer and install guide; Windows CI exercises WhatIf, fresh install, idempotence, tamper rejection, update, verified backup and rollback against the staged artifact.
-- These installer tests do not substitute for FL Studio scan/load, actual audio listening, user-machine CPU/latency, code signing or owner approval.
+The exact-head run passed:
 
-## Not verified here (needs you)
-1. **Listen.** Nothing has been auditioned. Use each preset on real vocals in Ableton, Logic, FL Studio, Reaper, Cubase, Pro Tools (AAX is not built).
-2. **Real CMake build on Windows x64** (`.github/workflows/release.yml` does it). The current product target is Windows VST3 only; macOS/AU and Linux product builds are intentionally deferred. The CMake `SKELL_BUILD_TESTS` target must pass in the Windows workflow.
-3. **pluginval, strictness 10**, on the Windows VST3 bundle (the workflow runs it).
-4. **Windows code signing** (requires an owner-provided Windows signing certificate; see `installer/`).
-5. **Decisions in `legal/`**: company name, 4-letter manufacturer code, licence tier, trademark search.
-6. **Beta** (see `beta/`).
+- Python release-package verifier regression tests.
+- Windows x64 CMake configure and Release VST3 build.
+- DSP, stress and real-time CTests.
+- pluginval strictness 10.
+- VST3 staging, strict metadata, AMD64 PE32+, provenance and package checksum validation.
+- Private-preview installer integration, including WhatIf, fresh per-user install, idempotence, update, verified backup/rollback, and rejection of tampered/missing/unlisted legal payloads and an unapproved preview EULA.
+- Upload of the validated Windows preview package.
+- GitHub Actions v6 checkout/setup-python/upload-artifact steps; the earlier Node.js 20 deprecation warning from v4/v5 action versions is no longer present in this exact-head workflow.
+
+### Exact artifact and independent inspection
+
+- GitHub artifact: [#14565656993](https://github.com/skellyruno/skell-delay-vst/actions/runs/44594311690/artifacts/14565656993)
+- Name: `SkellDelay-Windows-VST3-3fe262c73189904c073462db4da0f1c39acc98fb`
+- Size: 4,754,314 bytes
+- GitHub artifact SHA-256: `90ced93cd6669418a2c2a55ec315b281981316b739cb9b1bd41439cf3614503d`
+- Source commit recorded in the package manifest: `146dc8e3c499da7159edbaa6528c488a69d5f5bc`
+- Windows AMD64 PE32+ VST3 module: 8,908,800 bytes; SHA-256 `268a8017326277671a941a472b7078b0d179dacb57e8eeb1596c47e9e4f77737`.
+- Strict `moduleinfo.json`: SHA-256 `77289d5d36b77400c8222241923fa0a86b4a256f21275736673703d77223e0f5`; strict JSON parse passed and both VST3 class IDs are unique.
+- Preview installer script: SHA-256 `a26fcd9a2cdd7c2793f95c4bf576aed6940760530b56f62781cb8d6cd34061d9`.
+- Preview install guide: SHA-256 `c2b709d826a4f665ff35d4027710fce4a0170c059c03360a60541f48d58ed817`.
+- Third-party notice: SHA-256 `c75b3851e235ccadfd780472dc0a0c842ed7f6eb7386de278d105c4ae16c7682`.
+- Pinned JUCE license: 5,038 bytes; SHA-256 `ca3a08368c9ed3195253f2df63ef08db1b0ea6be99388bb130c921b7c3e54616`.
+- VST3 SDK license: 1,280 bytes; SHA-256 `bcefe3f3928dbc395deed6100b2e7dc74672a88c10e67a7803689961e30316a9`.
+
+The downloaded ZIP was independently inspected: archive SHA-256 matched GitHub's artifact digest, ZIP CRC/integrity passed, all **8** entries in `SHA256SUMS.txt` matched their payload bytes, the VST3 module had an MZ header and AMD64 PE32+ format, and the module metadata parsed as strict JSON. The package inventory contains the VST3 bundle, installer script/guide, checksum manifest, build-info, third-party notice and both upstream license texts.
+
+**Release status remains PREVIEW ONLY.** The package's `build-info.json` says `release_status: preview-only` and `legal.status: not-approved-for-distribution`; no EULA or approval-record digest is included. Factory Info URL and E-Mail remain empty, and the publisher-contact gate remains incomplete. The package is not signed and is not approved for redistribution or sale. This is not a public release or a legal approval.
+
+PR #19 is a child draft; its installer changes do not alter the PR #18 parent branch or `main`. Preserve the earlier PR #14 artifact below as a separate known-good baseline; neither artifact is overwritten by this update. The current artifact is temporary CI output and expires on 2026-11-26 unless downloaded and retained separately.
+
+This checklist separates automated engineering evidence from owner/host/legal approval. A green GitHub Actions run is not proof of musical quality, DAW acceptance, signing, licensing or commercial readiness.
+
+## Latest verified Windows private-preview CI evidence
+
+Exact tested source: commit [edf71f9](https://github.com/skellyruno/skell-delay-vst/commit/edf71f9cdfce6257402b4ed5044aa019ae888720), on draft PR [#14](https://github.com/skellyruno/skell-delay-vst/pull/14). The exact-head Windows workflow [#44384187310](https://github.com/skellyruno/skell-delay-vst/actions/runs/44384187310) completed successfully on 2026-11-18.
+
+The run passed:
+
+- Python release-package verifier regression tests.
+- Windows x64 CMake configure and Release VST3 build.
+- CTest DSP, stress and real-time suites.
+- pluginval strictness 10.
+- VST3 staging and package verification, including strict metadata, AMD64 PE32+, provenance and SHA-256 inventory.
+- PowerShell 7 private-preview installer integration against the staged package: WhatIf, fresh per-user install, idempotence, tamper rejection, update, verified backup, tampered-backup rejection and byte-for-byte rollback.
+- Upload of the validated private-preview artifact.
+
+Artifact record returned by GitHub Actions:
+
+- Artifact: [#14466232904](https://github.com/skellyruno/skell-delay-vst/actions/runs/44384187310)
+- Name: `SkellDelay-Windows-VST3-edf71f9cdfce6257402b4ed5044aa019ae888720`
+- Size: 4,749,067 bytes
+- GitHub artifact SHA-256: `f94cf91a4d5f38f217ff7fe972c347a8602ed89804a119f8bc8a30a3e7b85634`
+- VST3 module: 8,908,800 bytes; SHA-256 `d486f20c0bd64077a70a2392a3c8730b308ec66534bdcd084802013cf427525b`.
+- Strict moduleinfo JSON SHA-256: `77289d5d36b77400c8222241923fa0a86b4a256f21275736673703d77223e0f5`.
+- Preview installer script SHA-256: `f72529e4b2aef73869039a8bb1c710752727d18442f762bb39cd60c4098ef8ca`.
+- Preview install guide SHA-256: `c2b709d826a4f665ff35d4027710fce4a0170c059c03360a60541f48d58ed817`.
+
+The downloaded ZIP was independently checked in this run: archive SHA-256 matched GitHub's artifact digest, ZIP integrity passed, all five `SHA256SUMS.txt` entries matched, and the module had an MZ header with an AMD64 PE32+ header. The package's `build-info.json` explicitly marks it `preview-only`.
+
+**Metadata blocker found in the actual artifact:** `moduleinfo.json` has empty Factory Info `URL` and `E-Mail` values. Do not invent these. The owner must approve the public website and support contact before the metadata is populated.
+
+**Scope of this evidence:** the successful run is on a draft PR branch, not yet on `main`. It proves that the Windows preview build and automated install/update/rollback tests passed on GitHub's runner. It does not prove that a signed installer exists or that the plugin is ready for public sale. The artifact is temporary CI output and must be downloaded and independently retained before its expiry if it is to serve as a durable owner backup.
+
+## Verified source-level and automated test coverage
+
+- DSP, UI-logic and compatibility coverage in `tests/dsp_tests.cpp`, including the frozen parameter-ID regression checks.
+- Stress/limit coverage in `tests/stress_tests.cpp`.
+- Allocation and real-time checks in `tests/realtime_check.cpp`.
+- The Windows workflow runs the CMake test targets and pluginval against the Windows x64 VST3.
+- The current CMake product target is VST3 only. AU/macOS and Linux product artifacts are deferred; historical scripts are not supported release paths.
+- The current JUCE dependency is pinned to `8.0.17-security`.
+
+Any CPU percentage or latency measured on a hosted CI runner is not a substitute for a repeatable measurement on the owner's target Windows machine and intended DAW/audio interface. Record target-machine sample rate, buffer size, plugin configuration, CPU method and measured result before making a performance claim.
+
+## Still requires owner, host, legal or certificate evidence
+
+1. **Musical listening and A/B:** audition every factory preset and representative delay modes on real sessions/vocals. Record source material, settings, level matching and findings; synthetic tests do not establish sound quality.
+2. **FL Studio host acceptance:** scan/load the VST3; exercise automation, preset changes, save/reopen, project reopen and editor open/close; confirm no missing-plugin or state-recall regression. Record FL Studio version and actual evidence.
+3. **Target-machine performance:** measure CPU, latency and stability on the intended Windows hardware and audio buffer settings.
+4. **Windows signing:** provide and protect the owner-controlled signing certificate; run the approved tag-only signing path; verify Authenticode publisher, timestamp and final installer hash. The successful preview run did not sign an installer.
+5. **Vendor contact metadata:** approve a public URL and support e-mail for the VST3 Factory Info fields; both are blank in the verified preview artifact. Do not publish guessed contact details.
+5. **Publisher and identity decisions:** confirm the legal/trading company name, four-character manufacturer code `Skly`, unique plugin code `Dlay`, product name and trademark clearance before the first public release. Do not change host identity codes after release.
+6. **Third-party licensing:** confirm the applicable JUCE commercial/AGPL tier, Steinberg VST3 SDK terms, and any required attribution or splash-screen obligations. Do not rely on the repository's informal legal summary as legal advice.
+7. **Asset rights:** confirm commercial redistribution rights for `Source/Assets/skell_bg.png` and any other artwork or third-party assets.
+8. **Customer terms and sales operations:** have the EULA reviewed; decide refund policy, privacy notice, support contact, tax/VAT handling and merchant-of-record. The plugin currently makes no network calls and has no copy protection; do not imply an activation or licensing service exists.
+9. **Activation decision:** decide whether a licence file, serial or no activation is appropriate before beta so the tester and customer flow is not changed unexpectedly.
+10. **Beta acceptance:** run a controlled beta with documented host versions, install/update/rollback outcomes, crash reports and owner approval.
 
 ## Before the first public build
-- Confirm `COMPANY_NAME` ("Skelly Audio") and `PLUGIN_MANUFACTURER_CODE` ("Skly") in `CMakeLists.txt`; they cannot change after release without breaking saved projects.
-- Bump `VERSION` in `CMakeLists.txt`; the installers read it.
-- Run the whole `tests/` folder one more time and keep `frozen_param_ids.txt` in step (add new parameters; never change old ones).
+
+- Complete and record every owner/host/legal/certificate gate above.
+- Confirm `COMPANY_NAME` (`Skelly Audio`), `PLUGIN_MANUFACTURER_CODE` (`Skly`) and `PLUGIN_CODE` (`Dlay`) in `CMakeLists.txt`; freeze these identity values after release.
+- Bump `VERSION` in `CMakeLists.txt` only for an approved release candidate; verify installer version mapping.
+- Run the complete Windows release workflow on the exact release tag and inspect the uploaded artifact, signature, package manifest and hashes.
+- Preserve the last known-good preview artifact and its checksum separately from the new candidate.
+- Keep `tests/frozen_param_ids.txt` synchronized when adding parameters; never rename or change released parameter IDs, ranges or defaults.
+- Publish only after the owner explicitly approves the final binary, installer, legal terms and release notes.
+
+## Baseline and compatibility safeguards
+
+- Do not overwrite the last known-good VST3 package or installer when testing a candidate.
+- Preserve presets, parameter IDs, saved-state compatibility and FL Studio project recall.
+- Keep the private per-user preview installer separate from the signed production Inno Setup installer.
+- A preview install is optional and user-confirmed; it is not a public distribution mechanism.
