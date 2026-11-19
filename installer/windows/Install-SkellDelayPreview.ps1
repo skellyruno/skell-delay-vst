@@ -205,10 +205,23 @@ function Assert-PreviewPackage {
     param([Parameter(Mandatory = $true)][string]$PackagePath)
     $root = Get-FullPath $PackagePath
     Assert-NoReparsePoints $root
-    $expectedTop = @($BundleName, 'build-info.json', 'SHA256SUMS.txt', 'Install-SkellDelayPreview.ps1', 'INSTALL_PREVIEW.md') | Sort-Object -CaseSensitive
+    $expectedTop = @(
+        $BundleName,
+        'build-info.json',
+        'SHA256SUMS.txt',
+        'Install-SkellDelayPreview.ps1',
+        'INSTALL_PREVIEW.md',
+        'THIRD_PARTY_NOTICES.txt',
+        'ThirdPartyLicenses'
+    ) | Sort-Object -CaseSensitive
+    # EULA is included only in a signed release candidate; the manifest check below
+    # verifies that its presence agrees with the fail-closed legal approval state.
+    if (Test-Path -LiteralPath (Join-Path $root 'EULA.txt') -PathType Leaf) {
+        $expectedTop = @($expectedTop + 'EULA.txt' | Sort-Object -CaseSensitive)
+    }
     $actualTop = @(Get-ChildItem -LiteralPath $root -Force | ForEach-Object { $_.Name } | Sort-Object -CaseSensitive)
     if (($actualTop -join '|') -cne ($expectedTop -join '|')) {
-        throw "Preview package top-level contents are unexpected. Expected: $($expectedTop -join ', ')"
+        throw "Windows VST3 package top-level contents are unexpected. Expected: $($expectedTop -join ', ')"
     }
 
     $bundle = Join-Path $root $BundleName
@@ -216,9 +229,10 @@ function Assert-PreviewPackage {
     $manifest = Read-StrictJson (Join-Path $root 'build-info.json')
     if ($manifest.schema_version -ne 1 -or $manifest.product -cne $Product -or $manifest.vendor -cne $Vendor -or
         $manifest.version -cne $bundleCheck.Version -or $manifest.format -cne 'VST3' -or
-        $manifest.platform -cne 'windows-x64' -or $manifest.release_status -cne 'preview-only' -or
-        $manifest.installer.scope -cne 'per-user private preview') {
-        throw 'Build manifest product, version, platform or preview status is invalid.'
+        $manifest.platform -cne 'windows-x64' -or
+        $manifest.release_status -notin @('preview-only', 'signed-release-candidate') -or
+        $manifest.installer.scope -notin @('per-user private preview', 'signed release candidate')) {
+        throw 'Build manifest product, version, platform or release scope is invalid.'
     }
     if ([string]$manifest.source_commit -notmatch '^[0-9a-f]{40}$' -or
         [string]$manifest.ci_checkout_commit -notmatch '^[0-9a-f]{40}$' -or
@@ -231,6 +245,81 @@ function Assert-PreviewPackage {
         $manifest.validation.metadata_identity -cne 'passed' -or
         $manifest.validation.pe32_plus_amd64 -cne 'passed') {
         throw 'Build manifest does not record all required package validation gates.'
+    }
+    # Legal payloads are part of the package contract, not optional decoration.
+    # Validate exact paths, manifest records and file hashes before any install/backup mutation.
+    $noticeRelative = 'THIRD_PARTY_NOTICES.txt'
+    $juceLicenseRelative = 'ThirdPartyLicenses/JUCE-LICENSE.md'
+    $vst3LicenseRelative = 'ThirdPartyLicenses/VST3-SDK-LICENSE.txt'
+    if ($manifest.validation.third_party_notice_packaging -cne 'passed' -or
+        $manifest.validation.upstream_license_texts -cne 'included') {
+        throw 'Build manifest does not record the required third-party legal payload.'
+    }
+
+    $noticeRecord = $manifest.legal.third_party_notices
+    if ($noticeRecord.path -cne $noticeRelative -or
+        [string]$noticeRecord.sha256 -notmatch '^[0-9a-f]{64}$') {
+        throw 'Third-party notice manifest record is missing or invalid.'
+    }
+    $noticePath = Join-Path $root $noticeRelative
+    if (-not (Test-Path -LiteralPath $noticePath -PathType Leaf)) {
+        throw 'Third-party notice file is missing from the package.'
+    }
+    if ((Get-FileHash -LiteralPath $noticePath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $noticeRecord.sha256) {
+        throw 'Third-party notice hash does not match the build manifest.'
+    }
+
+    $licenseRecords = @($manifest.legal.upstream_license_texts)
+    if ($licenseRecords.Count -ne 2) {
+        throw 'Build manifest must contain exactly the pinned JUCE and VST3 SDK license records.'
+    }
+    foreach ($relative in @($juceLicenseRelative, $vst3LicenseRelative)) {
+        $matches = @($licenseRecords | Where-Object { $_.path -ceq $relative })
+        if ($matches.Count -ne 1) {
+            throw "Build manifest is missing or duplicates the upstream license record: $relative"
+        }
+        $record = $matches[0]
+        if ([string]$record.sha256 -notmatch '^[0-9a-f]{64}$' -or [long]$record.size_bytes -le 200) {
+            throw "Upstream license record is invalid: $relative"
+        }
+        $licensePath = Join-Path $root ($relative.Replace('/', [System.IO.Path]::DirectorySeparatorChar))
+        if (-not (Test-Path -LiteralPath $licensePath -PathType Leaf)) {
+            throw "Upstream license file is missing: $relative"
+        }
+        $licenseItem = Get-Item -LiteralPath $licensePath -Force
+        if ([long]$licenseItem.Length -ne [long]$record.size_bytes -or
+            (Get-FileHash -LiteralPath $licensePath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $record.sha256) {
+            throw "Upstream license size/hash does not match the build manifest: $relative"
+        }
+    }
+
+    $legalStatus = [string]$manifest.legal.status
+    $hasEula = Test-Path -LiteralPath (Join-Path $root 'EULA.txt') -PathType Leaf
+    if ($legalStatus -ceq 'not-approved-for-distribution') {
+        if ($manifest.release_status -cne 'preview-only' -or
+            $manifest.validation.owner_legal_approval -cne 'not-approved-preview-only' -or
+            $null -ne $manifest.legal.eula -or $hasEula -or
+            $null -ne $manifest.legal.approval_record_sha256) {
+            throw 'Preview package must remain explicitly unapproved and must not contain an EULA.'
+        }
+    }
+    elseif ($legalStatus -ceq 'owner-approved') {
+        $eulaRecord = $manifest.legal.eula
+        if ($manifest.release_status -cne 'signed-release-candidate' -or
+            $manifest.validation.owner_legal_approval -cne 'passed' -or
+            -not $hasEula -or $null -eq $eulaRecord -or
+            $eulaRecord.path -cne 'EULA.txt' -or
+            [string]$eulaRecord.sha256 -notmatch '^[0-9a-f]{64}$' -or
+            [string]$manifest.legal.approval_record_sha256 -notmatch '^[0-9a-f]{64}$') {
+            throw 'Signed release candidate must contain an owner-approved EULA and approval-record digest.'
+        }
+        $eulaPath = Join-Path $root 'EULA.txt'
+        if ((Get-FileHash -LiteralPath $eulaPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $eulaRecord.sha256) {
+            throw 'EULA hash does not match the owner-approved build manifest.'
+        }
+    }
+    else {
+        throw "Unknown legal approval status in build manifest: $legalStatus"
     }
     if ($manifest.binary.path -cne "$BundleName/$ModuleRelative" -or
         $manifest.binary.sha256 -cne $bundleCheck.BinarySha256 -or
@@ -288,6 +377,10 @@ function Assert-PreviewPackage {
     [void]$expectedSumPaths.Add('build-info.json')
     [void]$expectedSumPaths.Add('Install-SkellDelayPreview.ps1')
     [void]$expectedSumPaths.Add('INSTALL_PREVIEW.md')
+    [void]$expectedSumPaths.Add($noticeRelative)
+    [void]$expectedSumPaths.Add($juceLicenseRelative)
+    [void]$expectedSumPaths.Add($vst3LicenseRelative)
+    if ($legalStatus -ceq 'owner-approved') { [void]$expectedSumPaths.Add('EULA.txt') }
     $sumMap = [System.Collections.Generic.Dictionary[string,string]]::new([System.StringComparer]::Ordinal)
     foreach ($line in @(Get-Content -LiteralPath (Join-Path $root 'SHA256SUMS.txt'))) {
         if ($line -notmatch '^([0-9a-f]{64})  (.+)$') { throw "Malformed SHA256SUMS line: $line" }
