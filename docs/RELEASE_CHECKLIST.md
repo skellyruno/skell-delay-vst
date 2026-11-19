@@ -66,8 +66,9 @@ Before signing, the workflow requires these owner-configured GitHub repository v
 
 - `SKELL_FACTORY_INFO_URL` — an approved absolute HTTPS publisher URL.
 - `SKELL_SUPPORT_EMAIL` — an approved support email address.
+- `SKELL_VENDOR_NAME` — the exact owner-approved publisher/legal trading name. It must match `COMPANY_NAME` in `CMakeLists.txt` and the generated VST3 `Factory Info.Vendor`; the gate does not guess, normalize or silently rewrite the vendor identity.
 
-It also requires the owner-managed secrets `WIN_CERT_PFX` and `WIN_CERT_PASSWORD`. The preparation script verifies that the tag matches the CMake version, validates the contact fields and PFX input, applies the approved values only to the generated build's `moduleinfo.json`, and refuses to overwrite conflicting non-empty metadata. No contact details or certificate values are hardcoded in source.
+It also requires the owner-managed secrets `WIN_CERT_PFX` and `WIN_CERT_PASSWORD`. The preparation script verifies that the tag matches the CMake version, requires the owner-approved `SKELL_VENDOR_NAME` to match CMake and VST3 metadata exactly, validates the contact fields and PFX input, applies the approved contact values only to the generated build's `moduleinfo.json`, and refuses to overwrite conflicting non-empty metadata. No contact details or certificate values are hardcoded in source.
 
 The tagged workflow then signs the Windows VST3 module and Inno Setup installer and checks Authenticode validity plus a trusted timestamp before staging the artifact. A missing variable, secret, invalid value, version mismatch or signature failure stops the tag run. The package manifest marks publisher contact as complete only when the tag-preparation gate was actually passed; merely finding non-empty fields in a preview bundle is not enough. Ordinary PR/main preview builds remain unsigned and may keep blank Factory Info contact fields; their manifest reports that blocker. This workflow does not publish a GitHub Release or deploy a storefront.
 
