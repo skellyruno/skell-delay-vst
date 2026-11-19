@@ -124,6 +124,46 @@ class PublicReleaseGateTests(unittest.TestCase):
                     self.prepare(vendor_name=vendor)
                 self.assertEqual(self.info.read_bytes(), before)
 
+    def test_vendor_name_rejects_unicode_format_controls_and_non_ascii_spaces(self):
+        before = self.info.read_bytes()
+        for vendor in (
+            "Skelly\\u202e Audio",
+            "Skelly\\u200b Audio",
+            "Skelly\\u00a0Audio",
+            "Skelly\\u0085Audio",
+            "Skelly\\u2028Audio",
+        ):
+            with self.subTest(vendor=vendor):
+                with self.assertRaises(GATE.PackageError):
+                    self.prepare(vendor_name=vendor)
+                self.assertEqual(self.info.read_bytes(), before)
+
+    def test_factory_url_rejects_padding_and_invisible_characters(self):
+        before = self.info.read_bytes()
+        for url in (
+            " https://skellyruno.com/plugins/skell-delay",
+            "https://skellyruno.com/plugins/skell-delay ",
+            "https://skelly\\u200bruno.com/plugins/skell-delay",
+            "https://skellyruno.com/\\u202e",
+        ):
+            with self.subTest(url=url):
+                with self.assertRaises(GATE.PackageError):
+                    self.prepare(factory_url=url)
+                self.assertEqual(self.info.read_bytes(), before)
+
+    def test_support_email_rejects_padding_and_invisible_characters(self):
+        before = self.info.read_bytes()
+        for email in (
+            " support@skellyruno.com",
+            "support@skellyruno.com ",
+            "support@\\u200bskellyruno.com",
+            "support@skellyruno.com\\u0085",
+        ):
+            with self.subTest(email=email):
+                with self.assertRaises(GATE.PackageError):
+                    self.prepare(support_email=email)
+                self.assertEqual(self.info.read_bytes(), before)
+
     def test_tag_must_match_cmake_version_without_mutation(self):
         before = self.info.read_bytes()
         with self.assertRaisesRegex(GATE.PackageError, "does not match CMake"):

@@ -12,6 +12,7 @@ import os
 import re
 import sys
 import tempfile
+import unicodedata
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -34,10 +35,27 @@ RESERVED_HOST_SUFFIXES = (".local", ".localhost", ".invalid", ".test", ".example
 RESERVED_HOSTS = {"example.com", "example.org", "example.net"}
 
 
+def _has_disallowed_unicode(value: str) -> bool:
+    """Reject invisible/control code points in publisher metadata.
+
+    ASCII spaces are allowed in a vendor name, but other whitespace, Unicode
+    format controls (including bidi overrides/zero-width characters), control
+    characters, surrogates, private-use and unassigned code points are not.
+    """
+    for char in value:
+        category = unicodedata.category(char)
+        if category in {"Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp"}:
+            return True
+        if char != " " and char.isspace():
+            return True
+    return False
+
+
 def validate_contact_url(value: str) -> str:
-    value = value.strip()
-    if not value:
-        raise PackageError("SKELL_FACTORY_INFO_URL is required for a version-tag build")
+    if not value or value != value.strip():
+        raise PackageError("SKELL_FACTORY_INFO_URL must be non-empty and have no surrounding whitespace")
+    if _has_disallowed_unicode(value) or any(ch.isspace() for ch in value):
+        raise PackageError("Factory Info URL must not contain whitespace or invisible/control characters")
     try:
         parsed = urlsplit(value)
         host = parsed.hostname
@@ -53,7 +71,6 @@ def validate_contact_url(value: str) -> str:
         or parsed.username is not None
         or parsed.password is not None
         or parsed.fragment
-        or any(ch.isspace() for ch in value)
     ):
         raise PackageError(
             "Factory Info URL must be a public absolute HTTPS URL without credentials or fragment"
@@ -68,8 +85,11 @@ def validate_contact_url(value: str) -> str:
 
 
 def validate_support_email(value: str) -> str:
-    value = value.strip()
-    if not value or not EMAIL_RE.fullmatch(value):
+    if not value or value != value.strip():
+        raise PackageError("SKELL_SUPPORT_EMAIL must be non-empty and have no surrounding whitespace")
+    if _has_disallowed_unicode(value) or any(ch.isspace() for ch in value):
+        raise PackageError("SKELL_SUPPORT_EMAIL must not contain whitespace or invisible/control characters")
+    if not EMAIL_RE.fullmatch(value):
         raise PackageError("SKELL_SUPPORT_EMAIL must be a valid support email address")
     local, domain = value.rsplit("@", 1)
     if (
@@ -90,13 +110,12 @@ def validate_support_email(value: str) -> str:
 
 
 def validate_vendor_name(value: str) -> str:
-    """Require an explicit owner-approved publisher name without normalizing it."""
+    """Require an explicit owner-approved publisher name without normalization."""
     if not value or value != value.strip() or len(value) > 80:
         raise PackageError("SKELL_VENDOR_NAME must be an owner-approved name of 1-80 characters with no surrounding whitespace")
-    if any(ord(ch) < 32 or ord(ch) == 127 for ch in value):
-        raise PackageError("SKELL_VENDOR_NAME must not contain control characters")
+    if _has_disallowed_unicode(value):
+        raise PackageError("SKELL_VENDOR_NAME must not contain invisible, control, private-use or unassigned characters")
     return value
-
 
 def prepare_release(
     moduleinfo: Path,
