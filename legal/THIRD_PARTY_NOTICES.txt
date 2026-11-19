@@ -1,13 +1,22 @@
-THIRD-PARTY SOFTWARE IN SKELL-DELAY
+SKELL-DELAY THIRD-PARTY NOTICES
+Product: Skell-Delay
+Distribution status: {{DISTRIBUTION_STATUS}}
 
-JUCE (https://juce.com) - audio plug-in framework.
-  Used under: [ ] JUCE commercial licence (tier: ____ )   [ ] AGPLv3   <- fill in; see legal/README.md
+JUCE Framework (version 8.0.17-security)
+  License mode: {{JUCE_LICENSE_MODE}}
+  Commercial tier: {{JUCE_COMMERCIAL_TIER}}
   Copyright (c) Raw Material Software Limited.
+  Exact pinned license text: ThirdPartyLicenses/JUCE-LICENSE.md.
+  The JUCE license file identifies additional dependencies; the compiled dependency
+  inventory must be reviewed before public distribution.
 
-VST3 SDK (https://github.com/steinbergmedia/vst3sdk), bundled with JUCE - used for the VST3 format.
-  VST is a registered trademark of Steinberg Media Technologies GmbH.
-  Check the current licence terms of the SDK version you build with.
+VST3 SDK (bundled with the pinned JUCE dependency)
+  Exact SDK license text: ThirdPartyLicenses/VST3-SDK-LICENSE.txt.
+  VST and VST3 are Steinberg trademarks; follow current trademark guidance.
 
-Audio Unit is a trademark of Apple Inc.
+Bundled artwork
+  Source/Assets/skell_bg.png is included. Commercial redistribution requires documented
+  owner approval of its provenance and rights.
 
-No other third-party code, fonts or samples are included.
+This notice is an inventory aid, not legal advice and not a license grant.
+A private preview is not permission to redistribute or sell the plugin.

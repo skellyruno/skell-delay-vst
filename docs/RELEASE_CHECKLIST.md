@@ -72,6 +72,21 @@ It also requires the owner-managed secrets `WIN_CERT_PFX` and `WIN_CERT_PASSWORD
 
 The tagged workflow then signs the Windows VST3 module and Inno Setup installer and checks Authenticode validity plus a trusted timestamp before staging the artifact. A missing variable, secret, invalid value, version mismatch or signature failure stops the tag run. The package manifest marks publisher contact as complete only when the tag-preparation gate was actually passed; merely finding non-empty fields in a preview bundle is not enough. Ordinary PR/main preview builds remain unsigned and may keep blank Factory Info contact fields; their manifest reports that blocker. This workflow does not publish a GitHub Release or deploy a storefront.
 
+## Third-party license and redistribution gate
+
+Windows packages include the exact license texts from the pinned JUCE FetchContent source:
+ThirdPartyLicenses/JUCE-LICENSE.md and ThirdPartyLicenses/VST3-SDK-LICENSE.txt. The package
+also includes a rendered THIRD_PARTY_NOTICES.txt, and every legal file is checksummed.
+
+The checked-in legal/RELEASE_APPROVAL.json is deliberately NOT_APPROVED. The signed
+version-tag path fails before changing moduleinfo.json until the owner records evidence
+for JUCE licensing, VST3 SDK terms, the compiled dependency inventory, artwork rights,
+EULA review and trademark clearance. The EULA must have no template marker or bracketed
+placeholder. AGPLv3 selection also requires a source-distribution reference.
+
+Private previews include the notice and upstream license texts, omit the draft EULA, and
+are not approved for redistribution or sale. CI does not publish a GitHub Release.
+
 ## Before the first public build
 
 - Complete and record every owner/host/legal/certificate gate above.

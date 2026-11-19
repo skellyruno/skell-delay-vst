@@ -73,6 +73,16 @@ class PublicReleaseGateTests(unittest.TestCase):
         self.info.parent.mkdir(parents=True)
         self.module.write_bytes(pe_amd64_dll())
         self.info.write_text(json.dumps(metadata(), indent=2), encoding="utf-8")
+        self.juce_source = self.root / "juce-src"
+        sdk_license = self.juce_source / "modules/juce_audio_processors_headless/format_types/VST3_SDK/LICENSE.txt"
+        sdk_license.parent.mkdir(parents=True)
+        (self.juce_source / "LICENSE.md").write_text("Pinned JUCE license fixture. " + "x" * 300, encoding="utf-8")
+        sdk_license.write_text("Pinned VST3 SDK license fixture. " + "y" * 300, encoding="utf-8")
+        self.legal_approval = self.root / "RELEASE_APPROVAL.json"
+        self.eula = self.root / "EULA.txt"
+        self.eula.write_text("SKELL-DELAY TEST EULA\nReviewed test fixture.\n", encoding="utf-8")
+        record = {"schema_version": 1, "status": "APPROVED", "approver": "Test Owner", "approved_at": "2026-11-19", "approval_reference": "test-only", "juce": {"license_mode": "COMMERCIAL", "commercial_tier": "test-only", "license_evidence_reference": "test-only"}, "vst3_sdk": {"terms_reviewed": True, "license_reference": "test-only"}, "third_party_inventory": {"reviewed": True, "evidence_reference": "test-only"}, "assets": {"commercial_redistribution_approved": True, "evidence_reference": "test-only"}, "eula": {"reviewed": True, "evidence_reference": "test-only"}, "trademark": {"reviewed": True, "evidence_reference": "test-only"}}
+        self.legal_approval.write_text(json.dumps(record, indent=2), encoding="utf-8")
         self.valid = {
             "tag": "v1.0.0",
             "factory_url": "https://skellyruno.com/plugins/skell-delay",
@@ -85,13 +95,14 @@ class PublicReleaseGateTests(unittest.TestCase):
     def prepare(self, **overrides):
         values = dict(self.valid)
         values.update(overrides)
-        return GATE.prepare_release(self.info, self.cmake, **values)
+        return GATE.prepare_release(self.info, self.cmake, **values, legal_approval=self.legal_approval, eula_path=self.eula)
 
     def stage(self, public_release_prepared=False):
         package = self.root / "package"
         return VERIFIER.stage(
             self.bundle, package, self.cmake, "1" * 40, "2" * 40,
-            "43999999999", 10, public_release_prepared
+            "43999999999", 10, public_release_prepared,
+            self.juce_source, self.legal_approval, self.eula,
         )
 
     def test_applies_owner_approved_contact_to_generated_metadata(self):
@@ -103,6 +114,20 @@ class PublicReleaseGateTests(unittest.TestCase):
             result["moduleinfo_sha256"],
             hashlib.sha256(self.info.read_bytes()).hexdigest(),
         )
+
+    def test_public_release_requires_legal_approval_before_metadata_mutation(self):
+        before = self.info.read_bytes()
+        self.legal_approval.write_text(json.dumps({"schema_version": 1, "status": "NOT_APPROVED"}), encoding="utf-8")
+        with self.assertRaisesRegex(GATE.PackageError, "not APPROVED"):
+            self.prepare()
+        self.assertEqual(self.info.read_bytes(), before)
+
+    def test_public_release_rejects_unreviewed_eula_template(self):
+        before = self.info.read_bytes()
+        self.eula.write_text("TEMPLATE - [number] [country/state]", encoding="utf-8")
+        with self.assertRaisesRegex(GATE.PackageError, "EULA still contains"):
+            self.prepare()
+        self.assertEqual(self.info.read_bytes(), before)
 
     def test_requires_owner_approved_vendor_name_without_mutation(self):
         before = self.info.read_bytes()
@@ -274,7 +299,9 @@ class PublicReleaseGateTests(unittest.TestCase):
         )
         manifest = json.loads((self.root / "package/build-info.json").read_text(encoding="utf-8"))
         self.assertTrue(manifest["publisher_contact"]["complete"])
-        self.assertEqual(manifest["release_status"], "preview-only")
+        self.assertEqual(manifest["release_status"], "signed-release-candidate")
+        self.assertEqual(manifest["legal"]["status"], "owner-approved")
+        self.assertTrue((self.root / "package/EULA.txt").is_file())
 
     def test_signing_script_fails_closed_and_cleans_temporary_pfx(self):
         source = (ROOT / "installer/windows/build_installer.ps1").read_text(encoding="utf-8")

@@ -85,13 +85,19 @@ class ReleaseGateTests(unittest.TestCase):
         self.info.parent.mkdir(parents=True)
         self.module.write_bytes(pe())
         self.info.write_text(render(), encoding="utf-8")
+        self.juce_source = self.root / "juce-src"
+        sdk_license = self.juce_source / "modules/juce_audio_processors_headless/format_types/VST3_SDK/LICENSE.txt"
+        sdk_license.parent.mkdir(parents=True)
+        (self.juce_source / "LICENSE.md").write_text("Pinned JUCE license fixture. " + "x" * 300, encoding="utf-8")
+        sdk_license.write_text("Pinned VST3 SDK license fixture. " + "y" * 300, encoding="utf-8")
 
     def run_stage(self):
         package = self.root / "package"
         if package.exists():
             shutil.rmtree(package)
         return GATE.stage(self.bundle, package, self.cmake,
-                          "1" * 40, "2" * 40, "43999999999", 10)
+                          "1" * 40, "2" * 40, "43999999999", 10,
+                          juce_source=self.juce_source)
 
     def test_cmake_release_target_is_windows_vst3_only(self):
         original = self.cmake.read_text(encoding="utf-8")
@@ -114,9 +120,14 @@ class ReleaseGateTests(unittest.TestCase):
         self.assertEqual(self.info.read_bytes(), before)
         staged_info = self.root / "package/Skell-Delay.vst3" / GATE.INFO
         json.loads(staged_info.read_text(encoding="utf-8"))
-        self.assertEqual(len((self.root / "package/SHA256SUMS.txt").read_text().splitlines()), len(result["bundle_files"]) + 3)
+        self.assertEqual(len((self.root / "package/SHA256SUMS.txt").read_text().splitlines()), len(result["bundle_files"]) + 6)
         self.assertTrue((self.root / "package/Install-SkellDelayPreview.ps1").is_file())
         self.assertTrue((self.root / "package/INSTALL_PREVIEW.md").is_file())
+        self.assertIn("NOT FOR REDISTRIBUTION OR SALE", (self.root / "package/THIRD_PARTY_NOTICES.txt").read_text())
+        self.assertTrue((self.root / "package/ThirdPartyLicenses/JUCE-LICENSE.md").is_file())
+        self.assertTrue((self.root / "package/ThirdPartyLicenses/VST3-SDK-LICENSE.txt").is_file())
+        self.assertFalse((self.root / "package/EULA.txt").exists())
+        self.assertEqual(result["legal"]["status"], "not-approved-for-distribution")
         self.assertEqual(result["installer"]["script"]["path"], "Install-SkellDelayPreview.ps1")
 
     def test_checksum_manifest_covers_every_bundle_and_distribution_file(self):
@@ -128,7 +139,7 @@ class ReleaseGateTests(unittest.TestCase):
             self.assertNotIn(relative, entries)
             entries[relative] = digest
         expected = {item["path"] for item in result["bundle_files"]}
-        expected.update({"Install-SkellDelayPreview.ps1", "INSTALL_PREVIEW.md", "build-info.json"})
+        expected.update({"Install-SkellDelayPreview.ps1", "INSTALL_PREVIEW.md", "THIRD_PARTY_NOTICES.txt", "ThirdPartyLicenses/JUCE-LICENSE.md", "ThirdPartyLicenses/VST3-SDK-LICENSE.txt", "build-info.json"})
         self.assertEqual(set(entries), expected)
         for relative, digest in entries.items():
             self.assertEqual(GATE.sha((package / relative).read_bytes()), digest)
@@ -197,13 +208,19 @@ class ReleaseGateTests(unittest.TestCase):
         package.mkdir()
         (package / "stale.txt").write_text("stale")
         with self.assertRaises(GATE.PackageError):
-            GATE.stage(self.bundle, package, self.cmake, "1" * 40, "2" * 40, "439", 10)
+            GATE.stage(self.bundle, package, self.cmake, "1" * 40, "2" * 40, "439", 10, juce_source=self.juce_source)
+
+    def test_public_release_flag_rejects_unapproved_legal_record(self):
+        with self.assertRaisesRegex(GATE.PackageError, "not APPROVED"):
+            GATE.stage(self.bundle, self.root / "public-package", self.cmake,
+                       "1" * 40, "2" * 40, "43999999999", 10,
+                       public_release_prepared=True, juce_source=self.juce_source)
 
     def test_requires_full_commits_and_pluginval_ten(self):
         with self.assertRaises(GATE.PackageError):
-            GATE.stage(self.bundle, self.root / "p1", self.cmake, "abc", "2"*40, "439", 10)
+            GATE.stage(self.bundle, self.root / "p1", self.cmake, "abc", "2"*40, "439", 10, juce_source=self.juce_source)
         with self.assertRaises(GATE.PackageError):
-            GATE.stage(self.bundle, self.root / "p2", self.cmake, "1"*40, "2"*40, "439", 5)
+            GATE.stage(self.bundle, self.root / "p2", self.cmake, "1"*40, "2"*40, "439", 5, juce_source=self.juce_source)
 
 
 if __name__ == "__main__":

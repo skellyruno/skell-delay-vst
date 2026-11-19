@@ -23,6 +23,9 @@ from verify_windows_vst3 import (
     strip_trailing_commas,
     unique_keys,
     validate_metadata,
+    LEGAL_APPROVAL,
+    EULA,
+    validate_release_legal_approval,
 )
 
 TAG_RE = re.compile(r"^v(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)$")
@@ -133,7 +136,10 @@ def prepare_release(
     vendor_name: str,
     pfx_b64: str,
     pfx_password: str,
+    legal_approval: Path = LEGAL_APPROVAL,
+    eula_path: Path = EULA,
 ) -> dict:
+    approval = validate_release_legal_approval(legal_approval, eula_path)
     match = TAG_RE.fullmatch(tag)
     if not match:
         raise PackageError("Version tag must use vMAJOR.MINOR.PATCH (optional prerelease/build suffix)")
@@ -209,6 +215,8 @@ def prepare_release(
         "vendor": approved_vendor,
         "version": expected["version"],
         "moduleinfo_sha256": digest,
+        "legal_approval_status": approval["status"],
+        "legal_approval_sha256": hashlib.sha256(legal_approval.read_bytes()).hexdigest(),
     }
 
 
@@ -217,6 +225,8 @@ def main() -> int:
     parser.add_argument("--moduleinfo", type=Path, required=True)
     parser.add_argument("--cmake", type=Path, default=Path("CMakeLists.txt"))
     parser.add_argument("--tag", required=True)
+    parser.add_argument("--legal-approval", type=Path, default=LEGAL_APPROVAL)
+    parser.add_argument("--eula", type=Path, default=EULA)
     args = parser.parse_args()
     try:
         result = prepare_release(
@@ -228,6 +238,8 @@ def main() -> int:
             os.environ.get("SKELL_VENDOR_NAME", ""),
             os.environ.get("WIN_CERT_PFX", ""),
             os.environ.get("WIN_CERT_PASSWORD", ""),
+            args.legal_approval,
+            args.eula,
         )
         print(f"PASS: {result['product']} {result['version']} release publisher metadata applied")
         print(f"PASS: owner-approved vendor {result['vendor']!r} matches CMake COMPANY_NAME and VST3 metadata")
@@ -236,6 +248,7 @@ def main() -> int:
             f"moduleinfo SHA256={result['moduleinfo_sha256']}"
         )
         print("PASS: version tag matches CMake and signing certificate inputs are present")
+        print("PASS: owner legal approval record validated")
         return 0
     except (PackageError, OSError, UnicodeError, ValueError) as exc:
         print(f"PUBLIC RELEASE GATE FAILED: {exc}", file=sys.stderr)
