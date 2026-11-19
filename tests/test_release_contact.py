@@ -77,6 +77,7 @@ class PublicReleaseGateTests(unittest.TestCase):
             "tag": "v1.0.0",
             "factory_url": "https://skellyruno.com/plugins/skell-delay",
             "support_email": "support@skellyruno.com",
+            "vendor_name": "Skelly Audio",
             "pfx_b64": base64.b64encode(b"test-pfx-bytes").decode("ascii"),
             "pfx_password": "test-password",
         }
@@ -102,6 +103,26 @@ class PublicReleaseGateTests(unittest.TestCase):
             result["moduleinfo_sha256"],
             hashlib.sha256(self.info.read_bytes()).hexdigest(),
         )
+
+    def test_requires_owner_approved_vendor_name_without_mutation(self):
+        before = self.info.read_bytes()
+        with self.assertRaisesRegex(GATE.PackageError, "SKELL_VENDOR_NAME"):
+            self.prepare(vendor_name="")
+        self.assertEqual(self.info.read_bytes(), before)
+
+    def test_vendor_name_must_match_cmake_and_metadata_without_mutation(self):
+        before = self.info.read_bytes()
+        with self.assertRaisesRegex(GATE.PackageError, "must exactly match CMake COMPANY_NAME"):
+            self.prepare(vendor_name="Skell Audio")
+        self.assertEqual(self.info.read_bytes(), before)
+
+    def test_vendor_name_rejects_surrounding_whitespace_and_control_characters(self):
+        before = self.info.read_bytes()
+        for vendor in (" Skelly Audio", "Skelly Audio ", "Skelly Audio\\nOther"):
+            with self.subTest(vendor=vendor):
+                with self.assertRaises(GATE.PackageError):
+                    self.prepare(vendor_name=vendor)
+                self.assertEqual(self.info.read_bytes(), before)
 
     def test_tag_must_match_cmake_version_without_mutation(self):
         before = self.info.read_bytes()
