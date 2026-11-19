@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "status": "NOT_APPROVED",
+  "approver": "NOT_PROVIDED",
+  "approved_at": "NOT_PROVIDED",
+  "approval_reference": "NOT_PROVIDED",
+  "juce": {
+    "license_mode": "UNDECIDED",
+    "commercial_tier": "NOT_PROVIDED",
+    "license_evidence_reference": "NOT_PROVIDED",
+    "source_distribution_reference": "NOT_PROVIDED"
+  },
+  "vst3_sdk": {
+    "terms_reviewed": false,
+    "license_reference": "NOT_PROVIDED"
+  },
+  "third_party_inventory": {
+    "reviewed": false,
+    "evidence_reference": "NOT_PROVIDED"
+  },
+  "assets": {
+    "commercial_redistribution_approved": false,
+    "evidence_reference": "NOT_PROVIDED"
+  },
+  "eula": {
+    "reviewed": false,
+    "evidence_reference": "NOT_PROVIDED"
+  },
+  "trademark": {
+    "reviewed": false,
+    "evidence_reference": "NOT_PROVIDED"
+  }
+}

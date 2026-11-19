@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import re
+from datetime import date
 import shutil
 import struct
 import sys
@@ -15,6 +16,10 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PREVIEW_INSTALLER = REPO_ROOT / "installer" / "windows" / "Install-SkellDelayPreview.ps1"
 PREVIEW_GUIDE = REPO_ROOT / "docs" / "INSTALL_PREVIEW.md"
+LEGAL_APPROVAL = REPO_ROOT / "legal" / "RELEASE_APPROVAL.json"
+THIRD_PARTY_NOTICES = REPO_ROOT / "legal" / "THIRD_PARTY_NOTICES.txt"
+EULA = REPO_ROOT / "legal" / "EULA.txt"
+VST3_SDK_LICENSE = Path("modules/juce_audio_processors_headless/format_types/VST3_SDK/LICENSE.txt")
 
 PRODUCT = "Skell-Delay"
 VENDOR = "Skelly Audio"
@@ -172,6 +177,123 @@ def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def load_release_approval(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        raise PackageError(f"Missing owner release approval record: {path}")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"),
+                          object_pairs_hook=unique_keys,
+                          parse_constant=reject_non_finite_constant)
+    except (json.JSONDecodeError, PackageError) as exc:
+        raise PackageError(f"Release approval record is not strict JSON: {exc}") from exc
+    if not isinstance(data, dict) or data.get("schema_version") != 1:
+        raise PackageError("Release approval record must be a schema_version 1 JSON object")
+    return data
+
+
+def _required_approval_text(section: dict[str, Any], key: str, label: str) -> str:
+    value = section.get(key)
+    if not isinstance(value, str) or not value.strip() or value != value.strip():
+        raise PackageError(f"Owner legal approval is missing {label}")
+    if value.upper() in {"UNRESOLVED", "NOT_PROVIDED", "NOT APPROVED",
+                         "NOT_REVIEWED", "UNDECIDED", "TBD", "N/A", "NONE"}:
+        raise PackageError(f"Owner legal approval is unresolved: {label}")
+    return value
+
+
+def validate_release_legal_approval(approval_path: Path = LEGAL_APPROVAL,
+                                    eula_path: Path = EULA) -> dict[str, Any]:
+    data = load_release_approval(approval_path)
+    if data.get("status") != "APPROVED":
+        raise PackageError(f"Release legal approval is not APPROVED (status={data.get('status')!r})")
+    _required_approval_text(data, "approver", "approver")
+    approved_at = _required_approval_text(data, "approved_at", "approval date")
+    try:
+        date.fromisoformat(approved_at)
+    except ValueError as exc:
+        raise PackageError("Owner legal approval date must use ISO YYYY-MM-DD") from exc
+    _required_approval_text(data, "approval_reference", "approval reference")
+
+    juce = data.get("juce")
+    if not isinstance(juce, dict) or juce.get("license_mode") not in {"COMMERCIAL", "AGPLv3"}:
+        raise PackageError("JUCE license_mode must be explicitly COMMERCIAL or AGPLv3")
+    _required_approval_text(juce, "license_evidence_reference", "JUCE license evidence")
+    if juce["license_mode"] == "COMMERCIAL":
+        _required_approval_text(juce, "commercial_tier", "JUCE commercial tier")
+    else:
+        if juce.get("commercial_tier") != "NOT_APPLICABLE":
+            raise PackageError("AGPLv3 selection must set commercial_tier to NOT_APPLICABLE")
+        _required_approval_text(juce, "source_distribution_reference", "AGPLv3 source distribution reference")
+
+    vst3 = data.get("vst3_sdk")
+    if not isinstance(vst3, dict) or vst3.get("terms_reviewed") is not True:
+        raise PackageError("Steinberg VST3 SDK terms have not been owner-reviewed")
+    _required_approval_text(vst3, "license_reference", "VST3 SDK license reference")
+    inventory = data.get("third_party_inventory")
+    if not isinstance(inventory, dict) or inventory.get("reviewed") is not True:
+        raise PackageError("The compiled third-party dependency inventory has not been reviewed")
+    _required_approval_text(inventory, "evidence_reference", "third-party inventory evidence")
+    assets = data.get("assets")
+    if not isinstance(assets, dict) or assets.get("commercial_redistribution_approved") is not True:
+        raise PackageError("Commercial redistribution rights for bundled artwork/assets are not approved")
+    _required_approval_text(assets, "evidence_reference", "asset-rights evidence")
+    eula = data.get("eula")
+    if not isinstance(eula, dict) or eula.get("reviewed") is not True:
+        raise PackageError("The customer EULA has not been reviewed")
+    _required_approval_text(eula, "evidence_reference", "EULA review evidence")
+    if not eula_path.is_file():
+        raise PackageError(f"Missing reviewed customer EULA: {eula_path}")
+    eula_text = eula_path.read_text(encoding="utf-8-sig")
+    if re.search(r"(?i)\bTEMPLATE\b|\[[^\]]+\]", eula_text):
+        raise PackageError("EULA still contains a template marker or unresolved bracketed placeholder")
+    trademark = data.get("trademark")
+    if not isinstance(trademark, dict) or trademark.get("reviewed") is not True:
+        raise PackageError("Product/publisher trademark clearance has not been reviewed")
+    _required_approval_text(trademark, "evidence_reference", "trademark review evidence")
+    return data
+
+
+def render_third_party_notices(template_path: Path, approval: dict[str, Any] | None) -> str:
+    if not template_path.is_file():
+        raise PackageError(f"Missing third-party notice template: {template_path}")
+    text = template_path.read_text(encoding="utf-8-sig")
+    if approval is None:
+        mode, tier = "UNRESOLVED — OWNER APPROVAL REQUIRED", "NOT APPROVED"
+        status = "PRIVATE PREVIEW ONLY — NOT FOR REDISTRIBUTION OR SALE"
+    else:
+        juce = approval["juce"]
+        mode = juce["license_mode"]
+        tier = juce["commercial_tier"] if mode == "COMMERCIAL" else "NOT APPLICABLE"
+        status = "SIGNED RELEASE CANDIDATE — CI DOES NOT PUBLISH A PUBLIC RELEASE"
+    for token, value in (("{{JUCE_LICENSE_MODE}}", mode),
+                         ("{{JUCE_COMMERCIAL_TIER}}", tier),
+                         ("{{DISTRIBUTION_STATUS}}", status)):
+        text = text.replace(token, value)
+    if "{{" in text or "}}" in text:
+        raise PackageError("Third-party notice template contains an unresolved token")
+    return text
+
+
+def stage_juce_licenses(juce_source: Path, package: Path) -> list[dict[str, Any]]:
+    if not juce_source.is_dir():
+        raise PackageError(f"Missing populated JUCE FetchContent source directory: {juce_source}")
+    sources = (
+        (juce_source / "LICENSE.md", Path("ThirdPartyLicenses/JUCE-LICENSE.md")),
+        (juce_source / VST3_SDK_LICENSE, Path("ThirdPartyLicenses/VST3-SDK-LICENSE.txt")),
+    )
+    records: list[dict[str, Any]] = []
+    for source, relative in sources:
+        if not source.is_file() or source.stat().st_size < 200:
+            raise PackageError(f"Missing or implausibly short upstream license text: {source}")
+        destination = package / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+        records.append({"path": relative.as_posix(), "size_bytes": destination.stat().st_size,
+                        "sha256": sha(destination.read_bytes())})
+    return records
+
+
+
 def check_bundle(bundle: Path) -> None:
     if not bundle.is_dir() or bundle.name != PRODUCT + ".vst3":
         raise PackageError(f"Expected {PRODUCT}.vst3 directory")
@@ -192,8 +314,18 @@ def check_bundle(bundle: Path) -> None:
 
 def stage(source: Path, package: Path, cmake: Path, source_sha: str,
           ci_sha: str, run_id: str, pluginval: int,
-          public_release_prepared: bool = False) -> dict[str, Any]:
+          public_release_prepared: bool = False,
+          juce_source: Path | None = None,
+          legal_approval: Path = LEGAL_APPROVAL,
+          eula_path: Path = EULA,
+          notices_path: Path = THIRD_PARTY_NOTICES) -> dict[str, Any]:
     expected = identity_from_cmake(cmake)
+    approval_record = load_release_approval(legal_approval)
+    approved_legal = validate_release_legal_approval(legal_approval, eula_path) if public_release_prepared else None
+    if juce_source is None:
+        raise PackageError("The populated JUCE source directory is required to package upstream license texts")
+    if not (juce_source / "LICENSE.md").is_file() or not (juce_source / VST3_SDK_LICENSE).is_file():
+        raise PackageError("Pinned JUCE/VST3 SDK license texts are missing from the dependency source")
     if not SHA_RE.fullmatch(source_sha) or not SHA_RE.fullmatch(ci_sha):
         raise PackageError("Source and CI checkout commits must be full 40-character Git SHAs")
     if not run_id.isdigit():
@@ -221,6 +353,14 @@ def stage(source: Path, package: Path, cmake: Path, source_sha: str,
             raise PackageError(f"Missing private-preview distribution file: {source_file}")
         shutil.copy2(source_file, package / package_name)
 
+    notice_path = package / "THIRD_PARTY_NOTICES.txt"
+    notice_path.write_text(render_third_party_notices(notices_path, approved_legal), encoding="utf-8", newline="\n")
+    license_records = stage_juce_licenses(juce_source, package)
+    eula_record = None
+    if public_release_prepared:
+        shutil.copy2(eula_path, package / "EULA.txt")
+        eula_record = {"path": "EULA.txt", "sha256": sha((package / "EULA.txt").read_bytes())}
+
     info_path = staged / INFO
     metadata, normalized, changed = read_metadata(info_path)
     cids = validate_metadata(metadata, expected)
@@ -238,6 +378,15 @@ def stage(source: Path, package: Path, cmake: Path, source_sha: str,
     installer_record = {"path": installer_path.name, "sha256": sha(installer_path.read_bytes())}
     guide_record = {"path": guide_path.name, "sha256": sha(guide_path.read_bytes())}
 
+    notice_record = {"path": notice_path.name, "sha256": sha(notice_path.read_bytes())}
+    legal_approval_record = {
+        "status": "owner-approved" if public_release_prepared else "not-approved-for-distribution",
+        "approval_record_sha256": sha(legal_approval.read_bytes()) if public_release_prepared else None,
+        "third_party_notices": notice_record,
+        "upstream_license_texts": license_records,
+        "eula": eula_record,
+    }
+
     factory_info = metadata.get("Factory Info")
     factory_url = factory_info.get("URL") if isinstance(factory_info, dict) else ""
     support_email = factory_info.get("E-Mail") if isinstance(factory_info, dict) else ""
@@ -251,11 +400,15 @@ def stage(source: Path, package: Path, cmake: Path, source_sha: str,
         "FL Studio scan, automation, state save/reopen and old-project compatibility are not accepted",
         "Real music A/B and owner listening approval are pending",
         "Target Windows hardware CPU/latency and Quick4 UI acceptance are pending",
-        "Third-party license/attribution and SkellHub updater/rollback review are pending",
+        "SkellHub updater/rollback review is pending",
     ]
     if not publisher_contact_complete:
         release_blockers.append(
             "Owner-approved Factory Info URL and E-Mail are required before a public version-tag build"
+        )
+    if not public_release_prepared:
+        release_blockers.append(
+            "Owner-approved JUCE/VST3 licensing, full dependency inventory, artwork rights, trademark clearance and reviewed EULA are required before public distribution"
         )
 
     manifest = {
@@ -284,15 +437,19 @@ def stage(source: Path, package: Path, cmake: Path, source_sha: str,
         },
         "bundle_files": bundle_files,
         "installer": {
-            "scope": "per-user private preview",
+            "scope": "signed release candidate" if public_release_prepared else "per-user private preview",
             "script": installer_record,
             "guide": guide_record,
         },
+        "legal": legal_approval_record,
         "validation": {
             "bundle_structure": "passed",
             "metadata_identity": "passed",
             "pe32_plus_amd64": "passed",
             "pluginval": {"strictness_level": pluginval, "result": "passed"},
+            "third_party_notice_packaging": "passed",
+            "upstream_license_texts": "included",
+            "owner_legal_approval": "passed" if public_release_prepared else "not-approved-preview-only",
         },
         "publisher_contact": {
             "complete": publisher_contact_complete,
@@ -302,7 +459,7 @@ def stage(source: Path, package: Path, cmake: Path, source_sha: str,
             "support_email_present": support_email_present,
             "source": "owner-approved tag preparation step" if publisher_contact_complete else "not validated for public release",
         },
-        "release_status": "preview-only",
+        "release_status": "signed-release-candidate" if public_release_prepared else "preview-only",
         "release_blockers": release_blockers,
     }
     manifest_text = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
@@ -311,6 +468,9 @@ def stage(source: Path, package: Path, cmake: Path, source_sha: str,
     sums.extend([
         f"{installer_record['sha256']}  {installer_record['path']}",
         f"{guide_record['sha256']}  {guide_record['path']}",
+        f"{notice_record['sha256']}  {notice_record['path']}",
+        *[f"{item['sha256']}  {item['path']}" for item in license_records],
+        *([f"{eula_record['sha256']}  {eula_record['path']}"] if eula_record else []),
         f"{sha(manifest_text.encode('utf-8'))}  build-info.json",
     ])
     sums.sort(key=lambda item: item.split("  ", 1)[1])
@@ -327,13 +487,18 @@ def main() -> int:
     parser.add_argument("--ci-commit", required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--pluginval-strictness", type=int, required=True)
+    parser.add_argument("--juce-source", type=Path, required=True)
+    parser.add_argument("--legal-approval", type=Path, default=LEGAL_APPROVAL)
+    parser.add_argument("--eula", type=Path, default=EULA)
+    parser.add_argument("--notices", type=Path, default=THIRD_PARTY_NOTICES)
     parser.add_argument("--public-release-prepared", action="store_true",
                         help="Assert that the owner-approved version-tag metadata/signing gate passed")
     args = parser.parse_args()
     try:
         result = stage(args.source_bundle, args.package_dir, args.cmake,
                        args.source_commit, args.ci_commit, args.run_id,
-                       args.pluginval_strictness, args.public_release_prepared)
+                       args.pluginval_strictness, args.public_release_prepared,
+                       args.juce_source, args.legal_approval, args.eula, args.notices)
         print(f"PASS: {result['product']} {result['version']} Windows x64 VST3; "
               f"normalization={result['moduleinfo']['normalization_applied']}; "
               f"binary SHA256={result['binary']['sha256']}")

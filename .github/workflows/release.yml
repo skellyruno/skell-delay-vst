@@ -103,7 +103,7 @@ jobs:
           SKELL_VENDOR_NAME: ${{ vars.SKELL_VENDOR_NAME }}
           WIN_CERT_PFX: ${{ secrets.WIN_CERT_PFX }}
           WIN_CERT_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD }}
-        run: python scripts/prepare_public_release.py --moduleinfo "build/DelayPlugin_artefacts/Release/VST3/Skell-Delay.vst3/Contents/Resources/moduleinfo.json" --cmake "CMakeLists.txt" --tag "$env:GITHUB_REF_NAME"
+        run: python scripts/prepare_public_release.py --moduleinfo "build/DelayPlugin_artefacts/Release/VST3/Skell-Delay.vst3/Contents/Resources/moduleinfo.json" --cmake "CMakeLists.txt" --tag "$env:GITHUB_REF_NAME" --legal-approval "legal/RELEASE_APPROVAL.json" --eula "legal/EULA.txt"
 
       - name: pluginval (strictness 10)
         shell: bash
@@ -152,7 +152,7 @@ jobs:
           $ciCommit = (git rev-parse HEAD).Trim()
           $preparedArgs = @()
           if ($env:GITHUB_REF -like 'refs/tags/v*') { $preparedArgs += '--public-release-prepared' }
-          python scripts/verify_windows_vst3.py --source-bundle "build/DelayPlugin_artefacts/Release/VST3/Skell-Delay.vst3" --package-dir "package" --cmake "CMakeLists.txt" --source-commit "$env:SOURCE_COMMIT" --ci-commit "$ciCommit" --run-id "$env:GITHUB_RUN_ID" --pluginval-strictness 10 @preparedArgs
+          python scripts/verify_windows_vst3.py --source-bundle "build/DelayPlugin_artefacts/Release/VST3/Skell-Delay.vst3" --package-dir "package" --cmake "CMakeLists.txt" --source-commit "$env:SOURCE_COMMIT" --ci-commit "$ciCommit" --run-id "$env:GITHUB_RUN_ID" --pluginval-strictness 10 --juce-source "build/_deps/juce-src" --legal-approval "legal/RELEASE_APPROVAL.json" --eula "legal/EULA.txt" @preparedArgs
 
       - name: Test private-preview install, update and rollback
         shell: pwsh
