@@ -19,11 +19,11 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python for release package verifier
         if: runner.os == 'Windows'
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
@@ -62,7 +62,7 @@ jobs:
 
       - name: Preserve CTest failure diagnostics
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: SkellDelay-CTest-Diagnostics-Windows
           path: |
@@ -74,7 +74,7 @@ jobs:
 
       - name: Preserve Windows DSP crash dump
         if: failure() && runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: SkellDelay-DSP-CrashDump-Windows
           path: ${{ runner.temp }}/SkellDelayCrashDumps/*.dmp
@@ -83,7 +83,7 @@ jobs:
 
       - name: Preserve Windows DSP executable and symbols
         if: failure() && runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: SkellDelay-DSP-Debug-Symbols-Windows
           path: |
@@ -160,7 +160,7 @@ jobs:
 
       - name: Upload validated Windows VST3 and installer artifacts
         if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: SkellDelay-Windows-VST3-${{ github.sha }}
           path: |

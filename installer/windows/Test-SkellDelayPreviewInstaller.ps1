@@ -113,6 +113,56 @@ try {
     }
     if ((Get-TreeDigest $target) -cne $originalTree) { throw 'Tampered package changed the installed bundle.' }
 
+    $tamperedLicensePackage = Join-Path $testRoot 'tampered-license-package'
+    Copy-Package -Source $PackagePath -Destination $tamperedLicensePackage
+    $tamperedLicense = Join-Path $tamperedLicensePackage 'ThirdPartyLicenses/JUCE-LICENSE.md'
+    [System.IO.File]::AppendAllText($tamperedLicense, "`nTampered license payload.", [System.Text.UTF8Encoding]::new($false))
+    Invoke-ExpectedFailure -Label 'tampered upstream license text' -Action {
+        & $Installer -PackagePath $tamperedLicensePackage -InstallRoot $installRoot -BackupRoot $backupRoot -Confirm:$false
+    }
+    if ((Get-TreeDigest $target) -cne $originalTree) { throw 'Tampered upstream license changed the installed bundle.' }
+
+    $missingLicensePackage = Join-Path $testRoot 'missing-license-package'
+    Copy-Package -Source $PackagePath -Destination $missingLicensePackage
+    Remove-Item -LiteralPath (Join-Path $missingLicensePackage 'ThirdPartyLicenses/VST3-SDK-LICENSE.txt') -Force
+    Invoke-ExpectedFailure -Label 'missing VST3 SDK license text' -Action {
+        & $Installer -PackagePath $missingLicensePackage -InstallRoot $installRoot -BackupRoot $backupRoot -Confirm:$false
+    }
+    if ((Get-TreeDigest $target) -cne $originalTree) { throw 'Missing legal payload changed the installed bundle.' }
+
+    $tamperedNoticePackage = Join-Path $testRoot 'tampered-notice-package'
+    Copy-Package -Source $PackagePath -Destination $tamperedNoticePackage
+    $tamperedNotice = Join-Path $tamperedNoticePackage 'THIRD_PARTY_NOTICES.txt'
+    [System.IO.File]::AppendAllText($tamperedNotice, "`nTampered notice payload.", [System.Text.UTF8Encoding]::new($false))
+    Invoke-ExpectedFailure -Label 'tampered third-party notice' -Action {
+        & $Installer -PackagePath $tamperedNoticePackage -InstallRoot $installRoot -BackupRoot $backupRoot -Confirm:$false
+    }
+    if ((Get-TreeDigest $target) -cne $originalTree) { throw 'Tampered third-party notice changed the installed bundle.' }
+
+    $unexpectedNestedPackage = Join-Path $testRoot 'unexpected-nested-package'
+    Copy-Package -Source $PackagePath -Destination $unexpectedNestedPackage
+    [System.IO.File]::WriteAllText((Join-Path $unexpectedNestedPackage 'ThirdPartyLicenses/extra.txt'), 'unlisted legal payload', [System.Text.UTF8Encoding]::new($false))
+    Invoke-ExpectedFailure -Label 'unlisted nested legal payload' -Action {
+        & $Installer -PackagePath $unexpectedNestedPackage -InstallRoot $installRoot -BackupRoot $backupRoot -Confirm:$false
+    }
+    if ((Get-TreeDigest $target) -cne $originalTree) { throw 'Unlisted nested payload changed the installed bundle.' }
+
+    $unexpectedPackage = Join-Path $testRoot 'unexpected-package'
+    Copy-Package -Source $PackagePath -Destination $unexpectedPackage
+    [System.IO.File]::WriteAllText((Join-Path $unexpectedPackage 'unexpected.txt'), 'not part of the release package', [System.Text.UTF8Encoding]::new($false))
+    Invoke-ExpectedFailure -Label 'unexpected top-level package payload' -Action {
+        & $Installer -PackagePath $unexpectedPackage -InstallRoot $installRoot -BackupRoot $backupRoot -Confirm:$false
+    }
+    if ((Get-TreeDigest $target) -cne $originalTree) { throw 'Unexpected package payload changed the installed bundle.' }
+
+    $unexpectedEulaPackage = Join-Path $testRoot 'unexpected-eula-package'
+    Copy-Package -Source $PackagePath -Destination $unexpectedEulaPackage
+    [System.IO.File]::WriteAllText((Join-Path $unexpectedEulaPackage 'EULA.txt'), 'Unapproved EULA', [System.Text.UTF8Encoding]::new($false))
+    Invoke-ExpectedFailure -Label 'unapproved preview EULA' -Action {
+        & $Installer -PackagePath $unexpectedEulaPackage -InstallRoot $installRoot -BackupRoot $backupRoot -Confirm:$false
+    }
+    if ((Get-TreeDigest $target) -cne $originalTree) { throw 'Unapproved EULA changed the installed bundle.' }
+
     $updatePackage = Join-Path $testRoot 'update-package'
     Copy-Package -Source $PackagePath -Destination $updatePackage
     # Simulate a real new plugin package, not just changed build provenance.
