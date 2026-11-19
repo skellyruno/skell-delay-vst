@@ -89,12 +89,22 @@ def validate_support_email(value: str) -> str:
     return value
 
 
+def validate_vendor_name(value: str) -> str:
+    """Require an explicit owner-approved publisher name without normalizing it."""
+    if not value or value != value.strip() or len(value) > 80:
+        raise PackageError("SKELL_VENDOR_NAME must be an owner-approved name of 1-80 characters with no surrounding whitespace")
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in value):
+        raise PackageError("SKELL_VENDOR_NAME must not contain control characters")
+    return value
+
+
 def prepare_release(
     moduleinfo: Path,
     cmake: Path,
     tag: str,
     factory_url: str,
     support_email: str,
+    vendor_name: str,
     pfx_b64: str,
     pfx_password: str,
 ) -> dict:
@@ -102,6 +112,11 @@ def prepare_release(
     if not match:
         raise PackageError("Version tag must use vMAJOR.MINOR.PATCH (optional prerelease/build suffix)")
     expected = identity_from_cmake(cmake)
+    approved_vendor = validate_vendor_name(vendor_name)
+    if approved_vendor != expected["vendor"]:
+        raise PackageError(
+            "SKELL_VENDOR_NAME must exactly match CMake COMPANY_NAME; confirm publisher identity before release"
+        )
     if match.group(1) != expected["version"]:
         raise PackageError(
             f"Version tag {tag!r} does not match CMake product version {expected['version']!r}"
@@ -165,6 +180,7 @@ def prepare_release(
     digest = hashlib.sha256(output.encode("utf-8")).hexdigest()
     return {
         "product": expected["product"],
+        "vendor": approved_vendor,
         "version": expected["version"],
         "moduleinfo_sha256": digest,
     }
@@ -183,10 +199,12 @@ def main() -> int:
             args.tag,
             os.environ.get("SKELL_FACTORY_INFO_URL", ""),
             os.environ.get("SKELL_SUPPORT_EMAIL", ""),
+            os.environ.get("SKELL_VENDOR_NAME", ""),
             os.environ.get("WIN_CERT_PFX", ""),
             os.environ.get("WIN_CERT_PASSWORD", ""),
         )
-        print(f"PASS: {result['product']} {result['version']} release contact metadata applied")
+        print(f"PASS: {result['product']} {result['version']} release publisher metadata applied")
+        print(f"PASS: owner-approved vendor {result['vendor']!r} matches CMake COMPANY_NAME and VST3 metadata")
         print(
             "PASS: owner-approved HTTPS URL and support email validated; "
             f"moduleinfo SHA256={result['moduleinfo_sha256']}"
