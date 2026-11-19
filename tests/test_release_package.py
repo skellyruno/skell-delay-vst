@@ -208,7 +208,7 @@ class ReleaseGateTests(unittest.TestCase):
         package.mkdir()
         (package / "stale.txt").write_text("stale")
         with self.assertRaises(GATE.PackageError):
-            GATE.stage(self.bundle, package, self.cmake, "1" * 40, "2" * 40, "439", 10)
+            GATE.stage(self.bundle, package, self.cmake, "1" * 40, "2" * 40, "439", 10, juce_source=self.juce_source)
 
     def test_public_release_flag_rejects_unapproved_legal_record(self):
         with self.assertRaisesRegex(GATE.PackageError, "not APPROVED"):
@@ -218,9 +218,9 @@ class ReleaseGateTests(unittest.TestCase):
 
     def test_requires_full_commits_and_pluginval_ten(self):
         with self.assertRaises(GATE.PackageError):
-            GATE.stage(self.bundle, self.root / "p1", self.cmake, "abc", "2"*40, "439", 10)
+            GATE.stage(self.bundle, self.root / "p1", self.cmake, "abc", "2"*40, "439", 10, juce_source=self.juce_source)
         with self.assertRaises(GATE.PackageError):
-            GATE.stage(self.bundle, self.root / "p2", self.cmake, "1"*40, "2"*40, "439", 5)
+            GATE.stage(self.bundle, self.root / "p2", self.cmake, "1"*40, "2"*40, "439", 5, juce_source=self.juce_source)
 
 
 if __name__ == "__main__":
