@@ -191,7 +191,8 @@ def check_bundle(bundle: Path) -> None:
 
 
 def stage(source: Path, package: Path, cmake: Path, source_sha: str,
-          ci_sha: str, run_id: str, pluginval: int) -> dict[str, Any]:
+          ci_sha: str, run_id: str, pluginval: int,
+          public_release_prepared: bool = False) -> dict[str, Any]:
     expected = identity_from_cmake(cmake)
     if not SHA_RE.fullmatch(source_sha) or not SHA_RE.fullmatch(ci_sha):
         raise PackageError("Source and CI checkout commits must be full 40-character Git SHAs")
@@ -237,6 +238,26 @@ def stage(source: Path, package: Path, cmake: Path, source_sha: str,
     installer_record = {"path": installer_path.name, "sha256": sha(installer_path.read_bytes())}
     guide_record = {"path": guide_path.name, "sha256": sha(guide_path.read_bytes())}
 
+    factory_info = metadata.get("Factory Info")
+    factory_url = factory_info.get("URL") if isinstance(factory_info, dict) else ""
+    support_email = factory_info.get("E-Mail") if isinstance(factory_info, dict) else ""
+    factory_url_present = isinstance(factory_url, str) and bool(factory_url.strip())
+    support_email_present = isinstance(support_email, str) and bool(support_email.strip())
+    publisher_contact_metadata_present = factory_url_present and support_email_present
+    if public_release_prepared and not publisher_contact_metadata_present:
+        raise PackageError("Public release preparation was asserted, but Factory Info URL/E-Mail are missing")
+    publisher_contact_complete = public_release_prepared and publisher_contact_metadata_present
+    release_blockers = [
+        "FL Studio scan, automation, state save/reopen and old-project compatibility are not accepted",
+        "Real music A/B and owner listening approval are pending",
+        "Target Windows hardware CPU/latency and Quick4 UI acceptance are pending",
+        "Third-party license/attribution and SkellHub updater/rollback review are pending",
+    ]
+    if not publisher_contact_complete:
+        release_blockers.append(
+            "Owner-approved Factory Info URL and E-Mail are required before a public version-tag build"
+        )
+
     manifest = {
         "schema_version": 1,
         "product": expected["product"],
@@ -273,14 +294,16 @@ def stage(source: Path, package: Path, cmake: Path, source_sha: str,
             "pe32_plus_amd64": "passed",
             "pluginval": {"strictness_level": pluginval, "result": "passed"},
         },
+        "publisher_contact": {
+            "complete": publisher_contact_complete,
+            "metadata_present": publisher_contact_metadata_present,
+            "validated_by_tag_gate": public_release_prepared,
+            "factory_info_url_present": factory_url_present,
+            "support_email_present": support_email_present,
+            "source": "owner-approved tag preparation step" if publisher_contact_complete else "not validated for public release",
+        },
         "release_status": "preview-only",
-        "release_blockers": [
-            "FL Studio scan, automation, state save/reopen and old-project compatibility are not accepted",
-            "Real music A/B and owner listening approval are pending",
-            "Factory Info URL and E-Mail are empty in current generated metadata",
-            "Target Windows hardware CPU/latency and Quick4 UI acceptance are pending",
-            "Third-party license/attribution and SkellHub updater/rollback review are pending",
-        ],
+        "release_blockers": release_blockers,
     }
     manifest_text = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
     (package / "build-info.json").write_text(manifest_text, encoding="utf-8", newline="\n")
@@ -304,11 +327,13 @@ def main() -> int:
     parser.add_argument("--ci-commit", required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--pluginval-strictness", type=int, required=True)
+    parser.add_argument("--public-release-prepared", action="store_true",
+                        help="Assert that the owner-approved version-tag metadata/signing gate passed")
     args = parser.parse_args()
     try:
         result = stage(args.source_bundle, args.package_dir, args.cmake,
                        args.source_commit, args.ci_commit, args.run_id,
-                       args.pluginval_strictness)
+                       args.pluginval_strictness, args.public_release_prepared)
         print(f"PASS: {result['product']} {result['version']} Windows x64 VST3; "
               f"normalization={result['moduleinfo']['normalization_applied']}; "
               f"binary SHA256={result['binary']['sha256']}")

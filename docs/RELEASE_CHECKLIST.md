@@ -58,6 +58,19 @@ Any CPU percentage or latency measured on a hosted CI runner is not a substitute
 9. **Activation decision:** decide whether a licence file, serial or no activation is appropriate before beta so the tester and customer flow is not changed unexpectedly.
 10. **Beta acceptance:** run a controlled beta with documented host versions, install/update/rollback outcomes, crash reports and owner approval.
 
+## Fail-closed signed version-tag gate
+
+The Windows workflow now treats a `vMAJOR.MINOR.PATCH` tag as a signed release-candidate build, not as a private preview.
+
+Before signing, the workflow requires these owner-configured GitHub repository variables:
+
+- `SKELL_FACTORY_INFO_URL` — an approved absolute HTTPS publisher URL.
+- `SKELL_SUPPORT_EMAIL` — an approved support email address.
+
+It also requires the owner-managed secrets `WIN_CERT_PFX` and `WIN_CERT_PASSWORD`. The preparation script verifies that the tag matches the CMake version, validates the contact fields and PFX input, applies the approved values only to the generated build's `moduleinfo.json`, and refuses to overwrite conflicting non-empty metadata. No contact details or certificate values are hardcoded in source.
+
+The tagged workflow then signs the Windows VST3 module and Inno Setup installer and checks Authenticode validity plus a trusted timestamp before staging the artifact. A missing variable, secret, invalid value, version mismatch or signature failure stops the tag run. The package manifest marks publisher contact as complete only when the tag-preparation gate was actually passed; merely finding non-empty fields in a preview bundle is not enough. Ordinary PR/main preview builds remain unsigned and may keep blank Factory Info contact fields; their manifest reports that blocker. This workflow does not publish a GitHub Release or deploy a storefront.
+
 ## Before the first public build
 
 - Complete and record every owner/host/legal/certificate gate above.
