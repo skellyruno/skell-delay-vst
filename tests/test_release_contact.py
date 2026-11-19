@@ -77,6 +77,7 @@ class PublicReleaseGateTests(unittest.TestCase):
             "tag": "v1.0.0",
             "factory_url": "https://skellyruno.com/plugins/skell-delay",
             "support_email": "support@skellyruno.com",
+            "vendor_name": "Skelly Audio",
             "pfx_b64": base64.b64encode(b"test-pfx-bytes").decode("ascii"),
             "pfx_password": "test-password",
         }
@@ -102,6 +103,66 @@ class PublicReleaseGateTests(unittest.TestCase):
             result["moduleinfo_sha256"],
             hashlib.sha256(self.info.read_bytes()).hexdigest(),
         )
+
+    def test_requires_owner_approved_vendor_name_without_mutation(self):
+        before = self.info.read_bytes()
+        with self.assertRaisesRegex(GATE.PackageError, "SKELL_VENDOR_NAME"):
+            self.prepare(vendor_name="")
+        self.assertEqual(self.info.read_bytes(), before)
+
+    def test_vendor_name_must_match_cmake_and_metadata_without_mutation(self):
+        before = self.info.read_bytes()
+        with self.assertRaisesRegex(GATE.PackageError, "must exactly match CMake COMPANY_NAME"):
+            self.prepare(vendor_name="Skell Audio")
+        self.assertEqual(self.info.read_bytes(), before)
+
+    def test_vendor_name_rejects_surrounding_whitespace_and_control_characters(self):
+        before = self.info.read_bytes()
+        for vendor in (" Skelly Audio", "Skelly Audio ", "Skelly Audio\nOther"):
+            with self.subTest(vendor=vendor):
+                with self.assertRaises(GATE.PackageError):
+                    self.prepare(vendor_name=vendor)
+                self.assertEqual(self.info.read_bytes(), before)
+
+    def test_vendor_name_rejects_unicode_format_controls_and_non_ascii_spaces(self):
+        before = self.info.read_bytes()
+        for vendor in (
+            "Skelly\u202e Audio",
+            "Skelly\u200b Audio",
+            "Skelly\u00a0Audio",
+            "Skelly\u0085Audio",
+            "Skelly\u2028Audio",
+        ):
+            with self.subTest(vendor=vendor):
+                with self.assertRaises(GATE.PackageError):
+                    self.prepare(vendor_name=vendor)
+                self.assertEqual(self.info.read_bytes(), before)
+
+    def test_factory_url_rejects_padding_and_invisible_characters(self):
+        before = self.info.read_bytes()
+        for url in (
+            " https://skellyruno.com/plugins/skell-delay",
+            "https://skellyruno.com/plugins/skell-delay ",
+            "https://skelly\u200bruno.com/plugins/skell-delay",
+            "https://skellyruno.com/\u202e",
+        ):
+            with self.subTest(url=url):
+                with self.assertRaises(GATE.PackageError):
+                    self.prepare(factory_url=url)
+                self.assertEqual(self.info.read_bytes(), before)
+
+    def test_support_email_rejects_padding_and_invisible_characters(self):
+        before = self.info.read_bytes()
+        for email in (
+            " support@skellyruno.com",
+            "support@skellyruno.com ",
+            "support@\u200bskellyruno.com",
+            "support@skellyruno.com\u0085",
+        ):
+            with self.subTest(email=email):
+                with self.assertRaises(GATE.PackageError):
+                    self.prepare(support_email=email)
+                self.assertEqual(self.info.read_bytes(), before)
 
     def test_tag_must_match_cmake_version_without_mutation(self):
         before = self.info.read_bytes()

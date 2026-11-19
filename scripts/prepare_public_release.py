@@ -12,6 +12,7 @@ import os
 import re
 import sys
 import tempfile
+import unicodedata
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -34,10 +35,27 @@ RESERVED_HOST_SUFFIXES = (".local", ".localhost", ".invalid", ".test", ".example
 RESERVED_HOSTS = {"example.com", "example.org", "example.net"}
 
 
+def _has_disallowed_unicode(value: str) -> bool:
+    """Reject invisible/control code points in publisher metadata.
+
+    ASCII spaces are allowed in a vendor name, but other whitespace, Unicode
+    format controls (including bidi overrides/zero-width characters), control
+    characters, surrogates, private-use and unassigned code points are not.
+    """
+    for char in value:
+        category = unicodedata.category(char)
+        if category in {"Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp"}:
+            return True
+        if char != " " and char.isspace():
+            return True
+    return False
+
+
 def validate_contact_url(value: str) -> str:
-    value = value.strip()
-    if not value:
-        raise PackageError("SKELL_FACTORY_INFO_URL is required for a version-tag build")
+    if not value or value != value.strip():
+        raise PackageError("SKELL_FACTORY_INFO_URL must be non-empty and have no surrounding whitespace")
+    if _has_disallowed_unicode(value) or any(ch.isspace() for ch in value):
+        raise PackageError("Factory Info URL must not contain whitespace or invisible/control characters")
     try:
         parsed = urlsplit(value)
         host = parsed.hostname
@@ -53,7 +71,6 @@ def validate_contact_url(value: str) -> str:
         or parsed.username is not None
         or parsed.password is not None
         or parsed.fragment
-        or any(ch.isspace() for ch in value)
     ):
         raise PackageError(
             "Factory Info URL must be a public absolute HTTPS URL without credentials or fragment"
@@ -68,8 +85,11 @@ def validate_contact_url(value: str) -> str:
 
 
 def validate_support_email(value: str) -> str:
-    value = value.strip()
-    if not value or not EMAIL_RE.fullmatch(value):
+    if not value or value != value.strip():
+        raise PackageError("SKELL_SUPPORT_EMAIL must be non-empty and have no surrounding whitespace")
+    if _has_disallowed_unicode(value) or any(ch.isspace() for ch in value):
+        raise PackageError("SKELL_SUPPORT_EMAIL must not contain whitespace or invisible/control characters")
+    if not EMAIL_RE.fullmatch(value):
         raise PackageError("SKELL_SUPPORT_EMAIL must be a valid support email address")
     local, domain = value.rsplit("@", 1)
     if (
@@ -89,12 +109,28 @@ def validate_support_email(value: str) -> str:
     return value
 
 
+def validate_vendor_name(value: str) -> str:
+    """Require an explicit owner-approved publisher name without normalization."""
+    if not value or value != value.strip() or len(value) > 80:
+        raise PackageError(
+            "SKELL_VENDOR_NAME must be an owner-approved name of 1-80 characters "
+            "with no surrounding whitespace"
+        )
+    if _has_disallowed_unicode(value):
+        raise PackageError(
+            "SKELL_VENDOR_NAME must not contain invisible, control, private-use "
+            "or unassigned characters"
+        )
+    return value
+
+
 def prepare_release(
     moduleinfo: Path,
     cmake: Path,
     tag: str,
     factory_url: str,
     support_email: str,
+    vendor_name: str,
     pfx_b64: str,
     pfx_password: str,
 ) -> dict:
@@ -102,6 +138,11 @@ def prepare_release(
     if not match:
         raise PackageError("Version tag must use vMAJOR.MINOR.PATCH (optional prerelease/build suffix)")
     expected = identity_from_cmake(cmake)
+    approved_vendor = validate_vendor_name(vendor_name)
+    if approved_vendor != expected["vendor"]:
+        raise PackageError(
+            "SKELL_VENDOR_NAME must exactly match CMake COMPANY_NAME; confirm publisher identity before release"
+        )
     if match.group(1) != expected["version"]:
         raise PackageError(
             f"Version tag {tag!r} does not match CMake product version {expected['version']!r}"
@@ -165,6 +206,7 @@ def prepare_release(
     digest = hashlib.sha256(output.encode("utf-8")).hexdigest()
     return {
         "product": expected["product"],
+        "vendor": approved_vendor,
         "version": expected["version"],
         "moduleinfo_sha256": digest,
     }
@@ -183,10 +225,12 @@ def main() -> int:
             args.tag,
             os.environ.get("SKELL_FACTORY_INFO_URL", ""),
             os.environ.get("SKELL_SUPPORT_EMAIL", ""),
+            os.environ.get("SKELL_VENDOR_NAME", ""),
             os.environ.get("WIN_CERT_PFX", ""),
             os.environ.get("WIN_CERT_PASSWORD", ""),
         )
-        print(f"PASS: {result['product']} {result['version']} release contact metadata applied")
+        print(f"PASS: {result['product']} {result['version']} release publisher metadata applied")
+        print(f"PASS: owner-approved vendor {result['vendor']!r} matches CMake COMPANY_NAME and VST3 metadata")
         print(
             "PASS: owner-approved HTTPS URL and support email validated; "
             f"moduleinfo SHA256={result['moduleinfo_sha256']}"
