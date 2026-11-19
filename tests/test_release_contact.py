@@ -127,11 +127,11 @@ class PublicReleaseGateTests(unittest.TestCase):
     def test_vendor_name_rejects_unicode_format_controls_and_non_ascii_spaces(self):
         before = self.info.read_bytes()
         for vendor in (
-            "Skelly\\u202e Audio",
-            "Skelly\\u200b Audio",
-            "Skelly\\u00a0Audio",
-            "Skelly\\u0085Audio",
-            "Skelly\\u2028Audio",
+            "Skelly\u202e Audio",
+            "Skelly\u200b Audio",
+            "Skelly\u00a0Audio",
+            "Skelly\u0085Audio",
+            "Skelly\u2028Audio",
         ):
             with self.subTest(vendor=vendor):
                 with self.assertRaises(GATE.PackageError):
@@ -143,8 +143,8 @@ class PublicReleaseGateTests(unittest.TestCase):
         for url in (
             " https://skellyruno.com/plugins/skell-delay",
             "https://skellyruno.com/plugins/skell-delay ",
-            "https://skelly\\u200bruno.com/plugins/skell-delay",
-            "https://skellyruno.com/\\u202e",
+            "https://skelly\u200bruno.com/plugins/skell-delay",
+            "https://skellyruno.com/\u202e",
         ):
             with self.subTest(url=url):
                 with self.assertRaises(GATE.PackageError):
@@ -156,8 +156,8 @@ class PublicReleaseGateTests(unittest.TestCase):
         for email in (
             " support@skellyruno.com",
             "support@skellyruno.com ",
-            "support@\\u200bskellyruno.com",
-            "support@skellyruno.com\\u0085",
+            "support@\u200bskellyruno.com",
+            "support@skellyruno.com\u0085",
         ):
             with self.subTest(email=email):
                 with self.assertRaises(GATE.PackageError):

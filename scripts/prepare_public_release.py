@@ -112,10 +112,17 @@ def validate_support_email(value: str) -> str:
 def validate_vendor_name(value: str) -> str:
     """Require an explicit owner-approved publisher name without normalization."""
     if not value or value != value.strip() or len(value) > 80:
-        raise PackageError("SKELL_VENDOR_NAME must be an owner-approved name of 1-80 characters with no surrounding whitespace")
+        raise PackageError(
+            "SKELL_VENDOR_NAME must be an owner-approved name of 1-80 characters "
+            "with no surrounding whitespace"
+        )
     if _has_disallowed_unicode(value):
-        raise PackageError("SKELL_VENDOR_NAME must not contain invisible, control, private-use or unassigned characters")
+        raise PackageError(
+            "SKELL_VENDOR_NAME must not contain invisible, control, private-use "
+            "or unassigned characters"
+        )
     return value
+
 
 def prepare_release(
     moduleinfo: Path,
