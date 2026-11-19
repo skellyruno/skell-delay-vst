@@ -118,7 +118,7 @@ class PublicReleaseGateTests(unittest.TestCase):
 
     def test_vendor_name_rejects_surrounding_whitespace_and_control_characters(self):
         before = self.info.read_bytes()
-        for vendor in (" Skelly Audio", "Skelly Audio ", "Skelly Audio\\nOther"):
+        for vendor in (" Skelly Audio", "Skelly Audio ", "Skelly Audio\nOther"):
             with self.subTest(vendor=vendor):
                 with self.assertRaises(GATE.PackageError):
                     self.prepare(vendor_name=vendor)
