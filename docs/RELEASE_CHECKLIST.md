@@ -1,5 +1,41 @@
 # Skell-Delay release checklist
 
+## Latest exact-head Windows private-preview evidence — 2026-11-19
+
+Exact tested source: commit [146dc8e](https://github.com/skellyruno/skell-delay-vst/commit/146dc8e3c499da7159edbaa6528c488a69d5f5bc), on draft child PR [#19](https://github.com/skellyruno/skell-delay-vst/pull/19), stacked on draft legal-packaging PR [#18](https://github.com/skellyruno/skell-delay-vst/pull/18). The exact-head Windows workflow [#44594311690](https://github.com/skellyruno/skell-delay-vst/actions/runs/44594311690) completed successfully on 2026-11-19.
+
+The exact-head run passed:
+
+- Python release-package verifier regression tests.
+- Windows x64 CMake configure and Release VST3 build.
+- DSP, stress and real-time CTests.
+- pluginval strictness 10.
+- VST3 staging, strict metadata, AMD64 PE32+, provenance and package checksum validation.
+- Private-preview installer integration, including WhatIf, fresh per-user install, idempotence, update, verified backup/rollback, and rejection of tampered/missing/unlisted legal payloads and an unapproved preview EULA.
+- Upload of the validated Windows preview package.
+- GitHub Actions v6 checkout/setup-python/upload-artifact steps; the earlier Node.js 20 deprecation warning from v4/v5 action versions is no longer present in this exact-head workflow.
+
+### Exact artifact and independent inspection
+
+- GitHub artifact: [#14565656993](https://github.com/skellyruno/skell-delay-vst/actions/runs/44594311690/artifacts/14565656993)
+- Name: `SkellDelay-Windows-VST3-3fe262c73189904c073462db4da0f1c39acc98fb`
+- Size: 4,754,314 bytes
+- GitHub artifact SHA-256: `90ced93cd6669418a2c2a55ec315b281981316b739cb9b1bd41439cf3614503d`
+- Source commit recorded in the package manifest: `146dc8e3c499da7159edbaa6528c488a69d5f5bc`
+- Windows AMD64 PE32+ VST3 module: 8,908,800 bytes; SHA-256 `268a8017326277671a941a472b7078b0d179dacb57e8eeb1596c47e9e4f77737`.
+- Strict `moduleinfo.json`: SHA-256 `77289d5d36b77400c8222241923fa0a86b4a256f21275736673703d77223e0f5`; strict JSON parse passed and both VST3 class IDs are unique.
+- Preview installer script: SHA-256 `a26fcd9a2cdd7c2793f95c4bf576aed6940760530b56f62781cb8d6cd34061d9`.
+- Preview install guide: SHA-256 `c2b709d826a4f665ff35d4027710fce4a0170c059c03360a60541f48d58ed817`.
+- Third-party notice: SHA-256 `c75b3851e235ccadfd780472dc0a0c842ed7f6eb7386de278d105c4ae16c7682`.
+- Pinned JUCE license: 5,038 bytes; SHA-256 `ca3a08368c9ed3195253f2df63ef08db1b0ea6be99388bb130c921b7c3e54616`.
+- VST3 SDK license: 1,280 bytes; SHA-256 `bcefe3f3928dbc395deed6100b2e7dc74672a88c10e67a7803689961e30316a9`.
+
+The downloaded ZIP was independently inspected: archive SHA-256 matched GitHub's artifact digest, ZIP CRC/integrity passed, all **8** entries in `SHA256SUMS.txt` matched their payload bytes, the VST3 module had an MZ header and AMD64 PE32+ format, and the module metadata parsed as strict JSON. The package inventory contains the VST3 bundle, installer script/guide, checksum manifest, build-info, third-party notice and both upstream license texts.
+
+**Release status remains PREVIEW ONLY.** The package's `build-info.json` says `release_status: preview-only` and `legal.status: not-approved-for-distribution`; no EULA or approval-record digest is included. Factory Info URL and E-Mail remain empty, and the publisher-contact gate remains incomplete. The package is not signed and is not approved for redistribution or sale. This is not a public release or a legal approval.
+
+PR #19 is a child draft; its installer changes do not alter the PR #18 parent branch or `main`. Preserve the earlier PR #14 artifact below as a separate known-good baseline; neither artifact is overwritten by this update. The current artifact is temporary CI output and expires on 2026-11-26 unless downloaded and retained separately.
+
 This checklist separates automated engineering evidence from owner/host/legal approval. A green GitHub Actions run is not proof of musical quality, DAW acceptance, signing, licensing or commercial readiness.
 
 ## Latest verified Windows private-preview CI evidence
