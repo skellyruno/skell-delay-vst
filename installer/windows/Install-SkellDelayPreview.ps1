@@ -389,7 +389,7 @@ function Assert-PreviewPackage {
     $expectedPackagePaths.Add('SHA256SUMS.txt')
     $expectedPackagePaths = @($expectedPackagePaths | Sort-Object -CaseSensitive)
     $actualPackagePaths = @(Get-ChildItem -LiteralPath $root -File -Recurse -Force | ForEach-Object {
-        [System.IO.Path]::GetRelativePath($root, $_.FullName).Replace('\\', '/')
+        [System.IO.Path]::GetRelativePath($root, $_.FullName).Replace('\', '/')
     } | Sort-Object -CaseSensitive)
     if (($actualPackagePaths -join '|') -cne ($expectedPackagePaths -join '|')) {
         throw 'Package file inventory contains a missing or unlisted file.'
