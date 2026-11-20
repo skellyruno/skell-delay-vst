@@ -213,7 +213,7 @@ public:
         if (! juce::isPositiveAndBelow (i, kChips)) return;
         if (i >= 2 && i <= 7)
         {
-            categoryFilter.setSelectedId (i, juce::sendNotification);
+            categoryFilter.setSelectedId (i, juce::sendNotificationSync);
             return;
         }
 
