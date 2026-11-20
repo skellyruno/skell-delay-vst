@@ -31,7 +31,21 @@ public:
             chip[i].setRadioGroupId (771);
             chip[i].getProperties().set ("flat", true);
             chip[i].getProperties().set ("led", true);
-            chip[i].onClick = [this, i] { activeChip = i; applyFilter(); };
+            chip[i].onClick = [this, i]
+            {
+                if (i >= 2 && i <= 7)
+                {
+                    categoryFilter.setSelectedId (i, juce::sendNotification);
+                    return;
+                }
+
+                activeChip = i;
+                categoryFilter.setSelectedId (1, juce::dontSendNotification);
+                chip[0].setToggleState (i == 0, juce::dontSendNotification);
+                chip[1].setToggleState (i == 1, juce::dontSendNotification);
+                chip[kChips - 1].setToggleState (i == kChips - 1, juce::dontSendNotification);
+                applyFilter();
+            };
             chip[i].setTitle (juce::String ("Filter ") + chipNames[i]);
             chip[i].setDescription (juce::String ("Filter presets by ") + chipNames[i]);
             chip[i].setWantsKeyboardFocus (true);
