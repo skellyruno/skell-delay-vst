@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "status": "NOT_APPROVED",
+  "approver": "NOT_PROVIDED",
+  "approved_at": "NOT_PROVIDED",
+  "approval_reference": "NOT_PROVIDED",
+  "gates": {
+    "build_download": {
+      "status": "NOT_VERIFIED",
+      "evidence_reference": "NOT_PROVIDED"
+    },
+    "sound_a_b": {
+      "status": "NOT_VERIFIED",
+      "evidence_reference": "NOT_PROVIDED"
+    },
+    "host_compatibility": {
+      "status": "NOT_VERIFIED",
+      "evidence_reference": "NOT_PROVIDED"
+    },
+    "preset_state_recall": {
+      "status": "NOT_VERIFIED",
+      "evidence_reference": "NOT_PROVIDED"
+    },
+    "licensing_attribution": {
+      "status": "NOT_VERIFIED",
+      "evidence_reference": "NOT_PROVIDED"
+    },
+    "updater_rollback": {
+      "status": "NOT_VERIFIED",
+      "evidence_reference": "NOT_PROVIDED"
+    },
+    "storefront_email_signup": {
+      "status": "NOT_VERIFIED",
+      "evidence_reference": "NOT_PROVIDED"
+    },
+    "release_notes": {
+      "status": "NOT_VERIFIED",
+      "evidence_reference": "NOT_PROVIDED"
+    },
+    "support_contact": {
+      "status": "NOT_VERIFIED",
+      "evidence_reference": "NOT_PROVIDED"
+    },
+    "pricing_trial": {
+      "status": "NOT_APPROVED",
+      "decision": "NOT_PROVIDED",
+      "evidence_reference": "NOT_PROVIDED"
+    }
+  }
+}

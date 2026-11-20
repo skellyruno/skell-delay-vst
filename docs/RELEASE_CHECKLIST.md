@@ -103,3 +103,12 @@ are not approved for redistribution or sale. CI does not publish a GitHub Releas
 - Preserve presets, parameter IDs, saved-state compatibility and FL Studio project recall.
 - Keep the private per-user preview installer separate from the signed production Inno Setup installer.
 - A preview install is optional and user-confirmed; it is not a public distribution mechanism.
+
+
+## Owner-controlled product acceptance matrix (additional signed-tag gate)
+
+The signed version-tag path also requires `release/OWNER_ACCEPTANCE.json` to be explicitly completed and approved. The checked-in record intentionally remains `NOT_APPROVED`; CI must not infer owner approval from green tests or fill this file automatically.
+
+Before a signed release candidate can be prepared, the owner must provide an approver, ISO approval date, approval reference, and evidence-backed `PASS` or `APPROVED` status for every required gate: Windows build/download, real musical A/B, FL Studio/host compatibility, preset and saved-state recall, licensing/attribution, updater/rollback, storefront and email signup, release notes, support contact, and pricing/trial decision. The pricing/trial gate also requires the actual approved decision. Every gate must carry a non-placeholder evidence reference.
+
+The preparation script validates this record before it writes publisher URL or support email into generated VST3 metadata. Missing, malformed, placeholder or incomplete approval fails closed without mutating `moduleinfo.json`. Ordinary PR/main preview builds and their existing tests remain available; this additional record is required only by the signed version-tag preparation step. Do not add secrets or guessed business details to this JSON file.

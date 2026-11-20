@@ -103,7 +103,7 @@ jobs:
           SKELL_VENDOR_NAME: ${{ vars.SKELL_VENDOR_NAME }}
           WIN_CERT_PFX: ${{ secrets.WIN_CERT_PFX }}
           WIN_CERT_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD }}
-        run: python scripts/prepare_public_release.py --moduleinfo "build/DelayPlugin_artefacts/Release/VST3/Skell-Delay.vst3/Contents/Resources/moduleinfo.json" --cmake "CMakeLists.txt" --tag "$env:GITHUB_REF_NAME" --legal-approval "legal/RELEASE_APPROVAL.json" --eula "legal/EULA.txt"
+        run: python scripts/prepare_public_release.py --moduleinfo "build/DelayPlugin_artefacts/Release/VST3/Skell-Delay.vst3/Contents/Resources/moduleinfo.json" --cmake "CMakeLists.txt" --tag "$env:GITHUB_REF_NAME" --legal-approval "legal/RELEASE_APPROVAL.json" --eula "legal/EULA.txt" --owner-acceptance "release/OWNER_ACCEPTANCE.json"
 
       - name: pluginval (strictness 10)
         shell: bash
