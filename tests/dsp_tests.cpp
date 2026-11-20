@@ -1,5 +1,6 @@
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
+#include "PresetBrowser.h"
 #include "Presets.h"
 #include <cstdio>
 #include <cmath>
@@ -93,6 +94,61 @@ int main()
     std::fflush (stderr);
     juce::ScopedJuceInitialiser_GUI init;
     std::fprintf (stderr, "[dsp_tests] JUCE GUI initializer completed\n");
+    std::fflush (stderr);
+
+    std::printf ("0) Preset browser exposes all category filters without changing sound state\\n");
+    {
+        auto uiProcessor = std::make_unique<DelayAudioProcessor>();
+        PresetBrowser browser (*uiProcessor);
+        browser.setBounds (0, 0, 640, 190);
+
+        juce::ComboBox* category = nullptr;
+        int visibleQuickFilters = 0;
+        for (int i = 0; i < browser.getNumChildComponents(); ++i)
+        {
+            auto* child = browser.getChildComponent (i);
+            if (auto* combo = dynamic_cast<juce::ComboBox*> (child))
+                if (combo->getTitle() == "Preset category filter") category = combo;
+
+            if (dynamic_cast<juce::TextButton*> (child) != nullptr &&
+                child->getTitle().startsWith ("Filter ") && child->isVisible())
+            {
+                ++visibleQuickFilters;
+                CHECK (! child->getBounds().isEmpty(), "ALL/FAV/USER quick filter has a real layout bound");
+            }
+        }
+
+        CHECK (visibleQuickFilters == 3, "ALL, FAV and USER remain visible one-click filters");
+        CHECK (category != nullptr && category->isVisible(), "category selector is visible");
+        if (category != nullptr)
+        {
+            CHECK (category->getNumItems() == 7, "category selector exposes reset plus all six categories");
+            CHECK (category->getWantsKeyboardFocus(), "category selector can receive keyboard focus");
+            CHECK (category->getDescription().isNotEmpty(), "category selector has an accessibility description");
+            CHECK (browser.getLocalBounds().contains (category->getBounds()), "category selector stays inside the browser");
+
+            const char* filterKeys[] = { "vocal", "rhythmic", "space", "tape", "lo-fi", "creative" };
+            const auto entries = uiProcessor->getPresetEntries();
+            for (int filterIndex = 0; filterIndex < 6; ++filterIndex)
+            {
+                category->setSelectedId (filterIndex + 2, juce::sendNotification);
+                int expected = 0;
+                const juce::String needle = juce::String (" ") + filterKeys[filterIndex] + " ";
+                for (const auto& entry : entries)
+                    if ((juce::String (" ") + entry.tags + " ").contains (needle)) ++expected;
+
+                CHECK (category->getSelectedId() == filterIndex + 2, "category selection remains synchronized");
+                CHECK (browser.getNumShown() == expected, "selected category applies its matching preset filter");
+            }
+
+            browser.selectChip (1);
+            CHECK (category->getSelectedId() == 1, "FAV quick filter clears the category selector");
+            browser.selectChip (8);
+            CHECK (category->getSelectedId() == 1, "USER quick filter clears the category selector");
+            browser.selectChip (0);
+            CHECK (category->getSelectedId() == 1, "ALL quick filter clears the category selector");
+        }
+    }
     std::fflush (stderr);
     std::vector<float> iL, iR, oL, oR;
 
