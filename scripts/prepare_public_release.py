@@ -184,7 +184,8 @@ def validate_owner_acceptance(path: Path) -> dict:
         gate = gates[name]
         if not isinstance(gate, dict):
             raise PackageError(f"Owner release acceptance gate {name} must be an object")
-        if gate.get("status") not in {"PASS", "APPROVED"}:
+        gate_status = gate.get("status")
+        if not isinstance(gate_status, str) or gate_status not in {"PASS", "APPROVED"}:
             raise PackageError(f"Owner release acceptance gate {name} is not PASS/APPROVED")
         require_text(gate.get("evidence_reference"), f"{name}.evidence_reference")
         if name == "pricing_trial":
