@@ -165,7 +165,7 @@ def validate_owner_acceptance(path: Path) -> dict:
 
     require_text(record.get("approver"), "approver", 120)
     approval_date = require_text(record.get("approved_at"), "approved_at", 10)
-    if not re.fullmatch(r"\\d{4}-\\d{2}-\\d{2}", approval_date):
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", approval_date):
         raise PackageError("Owner release acceptance approved_at must use YYYY-MM-DD")
     try:
         date.fromisoformat(approval_date)
