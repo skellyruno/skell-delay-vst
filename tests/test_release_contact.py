@@ -39,7 +39,30 @@ def metadata():
     }
 
 
-def pe_amd64_dll():
+def owner_acceptance_record():
+    names = (
+        "build_download", "sound_a_b", "host_compatibility", "preset_state_recall",
+        "licensing_attribution", "updater_rollback", "storefront_email_signup",
+        "release_notes", "support_contact", "pricing_trial",
+    )
+    gates = {}
+    for name in names:
+        gates[name] = {
+            "status": "APPROVED" if name in {"sound_a_b", "pricing_trial"} else "PASS",
+            "evidence_reference": "test-only",
+        }
+    gates["pricing_trial"]["decision"] = "paid-beta-no-trial"
+    return {
+        "schema_version": 1,
+        "status": "APPROVED",
+        "approver": "Test Owner",
+        "approved_at": "2026-11-20",
+        "approval_reference": "test-only",
+        "gates": gates,
+    }
+
+
+def pe_amd64_dll()
     data = bytearray(1024)
     data[:2] = b"MZ"
     offset = 0x80
@@ -83,6 +106,8 @@ class PublicReleaseGateTests(unittest.TestCase):
         self.eula.write_text("SKELL-DELAY TEST EULA\nReviewed test fixture.\n", encoding="utf-8")
         record = {"schema_version": 1, "status": "APPROVED", "approver": "Test Owner", "approved_at": "2026-11-19", "approval_reference": "test-only", "juce": {"license_mode": "COMMERCIAL", "commercial_tier": "test-only", "license_evidence_reference": "test-only"}, "vst3_sdk": {"terms_reviewed": True, "license_reference": "test-only"}, "third_party_inventory": {"reviewed": True, "evidence_reference": "test-only"}, "assets": {"commercial_redistribution_approved": True, "evidence_reference": "test-only"}, "eula": {"reviewed": True, "evidence_reference": "test-only"}, "trademark": {"reviewed": True, "evidence_reference": "test-only"}}
         self.legal_approval.write_text(json.dumps(record, indent=2), encoding="utf-8")
+        self.owner_acceptance = self.root / "OWNER_ACCEPTANCE.json"
+        self.owner_acceptance.write_text(json.dumps(owner_acceptance_record(), indent=2), encoding="utf-8")
         self.valid = {
             "tag": "v1.0.0",
             "factory_url": "https://skellyruno.com/plugins/skell-delay",
@@ -95,7 +120,7 @@ class PublicReleaseGateTests(unittest.TestCase):
     def prepare(self, **overrides):
         values = dict(self.valid)
         values.update(overrides)
-        return GATE.prepare_release(self.info, self.cmake, **values, legal_approval=self.legal_approval, eula_path=self.eula)
+        return GATE.prepare_release(self.info, self.cmake, **values, legal_approval=self.legal_approval, eula_path=self.eula, owner_acceptance_path=self.owner_acceptance)
 
     def stage(self, public_release_prepared=False):
         package = self.root / "package"
@@ -114,11 +139,49 @@ class PublicReleaseGateTests(unittest.TestCase):
             result["moduleinfo_sha256"],
             hashlib.sha256(self.info.read_bytes()).hexdigest(),
         )
+        self.assertEqual(result["owner_acceptance_status"], "APPROVED")
+        self.assertEqual(result["owner_acceptance_sha256"], hashlib.sha256(self.owner_acceptance.read_bytes()).hexdigest())
 
     def test_public_release_requires_legal_approval_before_metadata_mutation(self):
         before = self.info.read_bytes()
         self.legal_approval.write_text(json.dumps({"schema_version": 1, "status": "NOT_APPROVED"}), encoding="utf-8")
         with self.assertRaisesRegex(GATE.PackageError, "not APPROVED"):
+            self.prepare()
+        self.assertEqual(self.info.read_bytes(), before)
+
+    def test_owner_acceptance_must_be_approved_before_metadata_mutation(self):
+        before = self.info.read_bytes()
+        record = owner_acceptance_record()
+        record["status"] = "NOT_APPROVED"
+        self.owner_acceptance.write_text(json.dumps(record), encoding="utf-8")
+        with self.assertRaisesRegex(GATE.PackageError, "not APPROVED"):
+            self.prepare()
+        self.assertEqual(self.info.read_bytes(), before)
+
+    def test_owner_acceptance_requires_every_release_gate_before_metadata_mutation(self):
+        before = self.info.read_bytes()
+        record = owner_acceptance_record()
+        del record["gates"]["host_compatibility"]
+        self.owner_acceptance.write_text(json.dumps(record), encoding="utf-8")
+        with self.assertRaisesRegex(GATE.PackageError, "host_compatibility"):
+            self.prepare()
+        self.assertEqual(self.info.read_bytes(), before)
+
+    def test_owner_acceptance_rejects_unverified_sound_gate_without_mutation(self):
+        before = self.info.read_bytes()
+        record = owner_acceptance_record()
+        record["gates"]["sound_a_b"]["status"] = "NOT_VERIFIED"
+        self.owner_acceptance.write_text(json.dumps(record), encoding="utf-8")
+        with self.assertRaisesRegex(GATE.PackageError, "sound_a_b is not PASS/APPROVED"):
+            self.prepare()
+        self.assertEqual(self.info.read_bytes(), before)
+
+    def test_owner_acceptance_requires_pricing_trial_decision(self):
+        before = self.info.read_bytes()
+        record = owner_acceptance_record()
+        record["gates"]["pricing_trial"]["decision"] = "NOT_PROVIDED"
+        self.owner_acceptance.write_text(json.dumps(record), encoding="utf-8")
+        with self.assertRaisesRegex(GATE.PackageError, "pricing_trial.decision"):
             self.prepare()
         self.assertEqual(self.info.read_bytes(), before)
 
