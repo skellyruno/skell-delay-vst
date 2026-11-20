@@ -31,10 +31,57 @@ public:
             chip[i].setRadioGroupId (771);
             chip[i].getProperties().set ("flat", true);
             chip[i].getProperties().set ("led", true);
-            chip[i].onClick = [this, i] { activeChip = i; applyFilter(); };
+            chip[i].onClick = [this, i]
+            {
+                if (i >= 2 && i <= 7)
+                {
+                    categoryFilter.setSelectedId (i, juce::sendNotification);
+                    return;
+                }
+
+                activeChip = i;
+                categoryFilter.setSelectedId (1, juce::dontSendNotification);
+                chip[0].setToggleState (i == 0, juce::dontSendNotification);
+                chip[1].setToggleState (i == 1, juce::dontSendNotification);
+                chip[kChips - 1].setToggleState (i == kChips - 1, juce::dontSendNotification);
+                applyFilter();
+            };
             chip[i].setTitle (juce::String ("Filter ") + chipNames[i]);
-            if (i == 0 || i == 1 || i == kChips - 1) addAndMakeVisible (chip[i]);   // ALL, FAV, USER; category chips stay as hidden filters
+            chip[i].setDescription (juce::String ("Filter presets by ") + chipNames[i]);
+            chip[i].setWantsKeyboardFocus (true);
+            if (i == 0 || i == 1 || i == kChips - 1) addAndMakeVisible (chip[i]);   // ALL, FAV and USER remain direct one-click filters
         }
+
+        // The six category filters live in one keyboard-accessible selector so every
+        // category is reachable without shrinking the preset list or hiding controls.
+        categoryFilter.addItem ("CATEGORY", 1);
+        categoryFilter.addItem ("VOCAL", 2);
+        categoryFilter.addItem ("RHYTHM", 3);
+        categoryFilter.addItem ("SPACE", 4);
+        categoryFilter.addItem ("TAPE", 5);
+        categoryFilter.addItem ("LO-FI", 6);
+        categoryFilter.addItem ("CREATIVE", 7);
+        categoryFilter.setSelectedId (1, juce::dontSendNotification);
+        categoryFilter.setJustificationType (juce::Justification::centredLeft);
+        categoryFilter.setColour (juce::ComboBox::backgroundColourId, juce::Colour (0xff050c03));
+        categoryFilter.setColour (juce::ComboBox::textColourId, SkellUi::lime());
+        categoryFilter.setColour (juce::ComboBox::outlineColourId, SkellUi::lime().withAlpha (0.35f));
+        categoryFilter.setColour (juce::ComboBox::focusedOutlineColourId, SkellUi::lime());
+        categoryFilter.setColour (juce::ComboBox::arrowColourId, SkellUi::lime());
+        categoryFilter.setTitle ("Preset category filter");
+        categoryFilter.setDescription ("Choose VOCAL, RHYTHM, SPACE, TAPE, LO-FI or CREATIVE; choose CATEGORY to clear the category filter.");
+        categoryFilter.setTooltip ("Filter presets by category");
+        categoryFilter.setWantsKeyboardFocus (true);
+        categoryFilter.onChange = [this]
+        {
+            const int selected = categoryFilter.getSelectedId();
+            activeChip = (selected >= 2 && selected <= 7) ? selected : 0;
+            chip[0].setToggleState (activeChip == 0, juce::dontSendNotification);
+            chip[1].setToggleState (false, juce::dontSendNotification);
+            chip[kChips - 1].setToggleState (false, juce::dontSendNotification);
+            applyFilter();
+        };
+        addAndMakeVisible (categoryFilter);
         chip[0].setToggleState (true, juce::dontSendNotification);
 
         list.setModel (this);
@@ -119,7 +166,9 @@ public:
     {
         auto r = getLocalBounds().reduced (8);
         auto top = r.removeFromTop (22);
-        search.setBounds (top.removeFromLeft (150));
+        search.setBounds (top.removeFromLeft (220));
+        top.removeFromLeft (6);
+        categoryFilter.setBounds (top.removeFromLeft (170));
         top.removeFromLeft (6);
         const int cw = 64;
         for (int i : { 0, 1, kChips - 1 }) chip[i].setBounds (top.removeFromLeft (cw));
@@ -159,7 +208,22 @@ public:
 
     int getNumShown() const { return (int) shown.size(); }
     void setSearchText (const juce::String& t) { search.setText (t, true); }
-    void selectChip (int i) { chip[i].setToggleState (true, juce::sendNotification); }
+    void selectChip (int i)
+    {
+        if (! juce::isPositiveAndBelow (i, kChips)) return;
+        if (i >= 2 && i <= 7)
+        {
+            categoryFilter.setSelectedId (i, juce::sendNotificationSync);
+            return;
+        }
+
+        activeChip = i;
+        categoryFilter.setSelectedId (1, juce::dontSendNotification);
+        chip[0].setToggleState (i == 0, juce::dontSendNotification);
+        chip[1].setToggleState (i == 1, juce::dontSendNotification);
+        chip[kChips - 1].setToggleState (i == kChips - 1, juce::dontSendNotification);
+        applyFilter();
+    }
 
 private:
     static constexpr int kChips = 9;
@@ -247,6 +311,7 @@ private:
 
     DelayAudioProcessor& proc;
     juce::TextEditor search;
+    juce::ComboBox categoryFilter;
     juce::TextButton chip[kChips];
     juce::String chipKey[kChips];
     int activeChip = 0;

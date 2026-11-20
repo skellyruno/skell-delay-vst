@@ -158,8 +158,12 @@ jobs:
         shell: pwsh
         run: ./installer/windows/Test-SkellDelayPreviewInstaller.ps1 -PackagePath package
 
+      - name: Explain withheld public preview
+        if: runner.os == 'Windows' && github.event.repository.private != true
+        run: echo "::notice::Installable Skell Delay previews are withheld from public repositories; no product download artifact will be uploaded."
+
       - name: Upload validated Windows VST3 and installer artifacts
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && github.event.repository.private == true
         uses: actions/upload-artifact@v6
         with:
           name: SkellDelay-Windows-VST3-${{ github.sha }}
