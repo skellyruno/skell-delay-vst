@@ -62,7 +62,7 @@ def owner_acceptance_record():
     }
 
 
-def pe_amd64_dll()
+def pe_amd64_dll():
     data = bytearray(1024)
     data[:2] = b"MZ"
     offset = 0x80
