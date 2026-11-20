@@ -176,6 +176,15 @@ class PublicReleaseGateTests(unittest.TestCase):
             self.prepare()
         self.assertEqual(self.info.read_bytes(), before)
 
+    def test_owner_acceptance_rejects_malformed_gate_status_type(self):
+        before = self.info.read_bytes()
+        record = owner_acceptance_record()
+        record["gates"]["host_compatibility"]["status"] = ["PASS"]
+        self.owner_acceptance.write_text(json.dumps(record), encoding="utf-8")
+        with self.assertRaisesRegex(GATE.PackageError, "host_compatibility is not PASS/APPROVED"):
+            self.prepare()
+        self.assertEqual(self.info.read_bytes(), before)
+
     def test_owner_acceptance_requires_pricing_trial_decision(self):
         before = self.info.read_bytes()
         record = owner_acceptance_record()
