@@ -132,7 +132,7 @@ int main()
             const auto entries = uiProcessor->getPresetEntries();
             for (int filterIndex = 0; filterIndex < 6; ++filterIndex)
             {
-                category->setSelectedId (filterIndex + 2, juce::sendNotification);
+                category->setSelectedId (filterIndex + 2, juce::sendNotificationSync);
                 int expected = 0;
                 const juce::String needle = juce::String (" ") + filterKeys[filterIndex] + " ";
                 for (const auto& entry : entries)
