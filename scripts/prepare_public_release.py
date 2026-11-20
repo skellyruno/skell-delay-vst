@@ -12,6 +12,7 @@ import os
 import re
 import sys
 import tempfile
+from datetime import date
 import unicodedata
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -52,6 +53,22 @@ def _has_disallowed_unicode(value: str) -> bool:
         if char != " " and char.isspace():
             return True
     return False
+
+
+OWNER_ACCEPTANCE = Path(__file__).resolve().parents[1] / "release" / "OWNER_ACCEPTANCE.json"
+REQUIRED_OWNER_GATES = (
+    "build_download",
+    "sound_a_b",
+    "host_compatibility",
+    "preset_state_recall",
+    "licensing_attribution",
+    "updater_rollback",
+    "storefront_email_signup",
+    "release_notes",
+    "support_contact",
+    "pricing_trial",
+)
+PLACEHOLDER_VALUES = {"", "NOT_PROVIDED", "NOT_VERIFIED", "NOT_APPROVED", "PENDING", "TBD"}
 
 
 def validate_contact_url(value: str) -> str:
@@ -127,6 +144,55 @@ def validate_vendor_name(value: str) -> str:
     return value
 
 
+def validate_owner_acceptance(path: Path) -> dict:
+    """Require explicit owner evidence for every commercial release-readiness gate."""
+    raw = path.read_bytes()
+    try:
+        record = json.loads(raw.decode("utf-8-sig"), object_pairs_hook=unique_keys, parse_constant=reject_non_finite_constant)
+    except (UnicodeError, json.JSONDecodeError, PackageError) as exc:
+        raise PackageError(f"Owner release acceptance record is invalid: {exc}") from exc
+
+    if not isinstance(record, dict) or type(record.get("schema_version")) is not int or record["schema_version"] != 1:
+        raise PackageError("Owner release acceptance record must use schema_version 1")
+    if record.get("status") != "APPROVED":
+        raise PackageError("Owner release acceptance record is not APPROVED")
+
+    def require_text(value: object, label: str, limit: int = 1024) -> str:
+        if (not isinstance(value, str) or not value or value != value.strip() or len(value) > limit
+                or value.upper() in PLACEHOLDER_VALUES or _has_disallowed_unicode(value)):
+            raise PackageError(f"Owner release acceptance {label} is missing or contains a placeholder/invalid value")
+        return value
+
+    require_text(record.get("approver"), "approver", 120)
+    approval_date = require_text(record.get("approved_at"), "approved_at", 10)
+    if not re.fullmatch(r"\\d{4}-\\d{2}-\\d{2}", approval_date):
+        raise PackageError("Owner release acceptance approved_at must use YYYY-MM-DD")
+    try:
+        date.fromisoformat(approval_date)
+    except ValueError as exc:
+        raise PackageError("Owner release acceptance approved_at is not a valid calendar date") from exc
+    require_text(record.get("approval_reference"), "approval_reference")
+
+    gates = record.get("gates")
+    if not isinstance(gates, dict):
+        raise PackageError("Owner release acceptance gates must be an object")
+    missing = [name for name in REQUIRED_OWNER_GATES if name not in gates]
+    if missing:
+        raise PackageError("Owner release acceptance is missing required gates: " + ", ".join(missing))
+
+    for name in REQUIRED_OWNER_GATES:
+        gate = gates[name]
+        if not isinstance(gate, dict):
+            raise PackageError(f"Owner release acceptance gate {name} must be an object")
+        if gate.get("status") not in {"PASS", "APPROVED"}:
+            raise PackageError(f"Owner release acceptance gate {name} is not PASS/APPROVED")
+        require_text(gate.get("evidence_reference"), f"{name}.evidence_reference")
+        if name == "pricing_trial":
+            require_text(gate.get("decision"), "pricing_trial.decision", 160)
+
+    return {"status": "APPROVED", "sha256": hashlib.sha256(raw).hexdigest()}
+
+
 def prepare_release(
     moduleinfo: Path,
     cmake: Path,
@@ -138,8 +204,10 @@ def prepare_release(
     pfx_password: str,
     legal_approval: Path = LEGAL_APPROVAL,
     eula_path: Path = EULA,
+    owner_acceptance_path: Path = OWNER_ACCEPTANCE,
 ) -> dict:
     approval = validate_release_legal_approval(legal_approval, eula_path)
+    owner_acceptance = validate_owner_acceptance(owner_acceptance_path)
     match = TAG_RE.fullmatch(tag)
     if not match:
         raise PackageError("Version tag must use vMAJOR.MINOR.PATCH (optional prerelease/build suffix)")
@@ -217,6 +285,8 @@ def prepare_release(
         "moduleinfo_sha256": digest,
         "legal_approval_status": approval["status"],
         "legal_approval_sha256": hashlib.sha256(legal_approval.read_bytes()).hexdigest(),
+        "owner_acceptance_status": owner_acceptance["status"],
+        "owner_acceptance_sha256": owner_acceptance["sha256"],
     }
 
 
@@ -227,6 +297,7 @@ def main() -> int:
     parser.add_argument("--tag", required=True)
     parser.add_argument("--legal-approval", type=Path, default=LEGAL_APPROVAL)
     parser.add_argument("--eula", type=Path, default=EULA)
+    parser.add_argument("--owner-acceptance", type=Path, default=OWNER_ACCEPTANCE)
     args = parser.parse_args()
     try:
         result = prepare_release(
@@ -240,6 +311,7 @@ def main() -> int:
             os.environ.get("WIN_CERT_PASSWORD", ""),
             args.legal_approval,
             args.eula,
+            args.owner_acceptance,
         )
         print(f"PASS: {result['product']} {result['version']} release publisher metadata applied")
         print(f"PASS: owner-approved vendor {result['vendor']!r} matches CMake COMPANY_NAME and VST3 metadata")
@@ -249,6 +321,7 @@ def main() -> int:
         )
         print("PASS: version tag matches CMake and signing certificate inputs are present")
         print("PASS: owner legal approval record validated")
+        print("PASS: all owner release-readiness gates approved; acceptance SHA256=" + result["owner_acceptance_sha256"])
         return 0
     except (PackageError, OSError, UnicodeError, ValueError) as exc:
         print(f"PUBLIC RELEASE GATE FAILED: {exc}", file=sys.stderr)
