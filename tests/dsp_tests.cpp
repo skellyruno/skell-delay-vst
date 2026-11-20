@@ -96,7 +96,7 @@ int main()
     std::fprintf (stderr, "[dsp_tests] JUCE GUI initializer completed\n");
     std::fflush (stderr);
 
-    std::printf ("0) Preset browser exposes all category filters without changing sound state\\n");
+    std::printf ("0) Preset browser exposes all category filters without changing sound state\n");
     {
         auto uiProcessor = std::make_unique<DelayAudioProcessor>();
         PresetBrowser browser (*uiProcessor);
@@ -127,6 +127,7 @@ int main()
             CHECK (category->getDescription().isNotEmpty(), "category selector has an accessibility description");
             CHECK (browser.getLocalBounds().contains (category->getBounds()), "category selector stays inside the browser");
 
+            const auto originalPresetName = uiProcessor->getCurrentPresetName();
             const char* filterKeys[] = { "vocal", "rhythmic", "space", "tape", "lo-fi", "creative" };
             const auto entries = uiProcessor->getPresetEntries();
             for (int filterIndex = 0; filterIndex < 6; ++filterIndex)
@@ -147,6 +148,7 @@ int main()
             CHECK (category->getSelectedId() == 1, "USER quick filter clears the category selector");
             browser.selectChip (0);
             CHECK (category->getSelectedId() == 1, "ALL quick filter clears the category selector");
+            CHECK (uiProcessor->getCurrentPresetName() == originalPresetName, "filter changes do not load or alter the current sound");
         }
     }
     std::fflush (stderr);
