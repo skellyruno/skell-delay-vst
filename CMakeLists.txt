@@ -20,10 +20,10 @@ juce_add_plugin(DelayPlugin
     NEEDS_MIDI_OUTPUT FALSE
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS TRUE      # preset search, typed values and Ctrl/Cmd+Z need keystrokes
-    COPY_PLUGIN_AFTER_BUILD TRUE
+    COPY_PLUGIN_AFTER_BUILD FALSE
     PLUGIN_MANUFACTURER_CODE Skly
     PLUGIN_CODE Dlay
-    FORMATS VST3 AU
+    FORMATS VST3
     PRODUCT_NAME "Skell-Delay"
 )
 

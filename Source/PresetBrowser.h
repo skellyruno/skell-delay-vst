@@ -31,10 +31,57 @@ public:
             chip[i].setRadioGroupId (771);
             chip[i].getProperties().set ("flat", true);
             chip[i].getProperties().set ("led", true);
-            chip[i].onClick = [this, i] { activeChip = i; applyFilter(); };
+            chip[i].onClick = [this, i]
+            {
+                if (i >= 2 && i <= 7)
+                {
+                    categoryFilter.setSelectedId (i, juce::sendNotification);
+                    return;
+                }
+
+                activeChip = i;
+                categoryFilter.setSelectedId (1, juce::dontSendNotification);
+                chip[0].setToggleState (i == 0, juce::dontSendNotification);
+                chip[1].setToggleState (i == 1, juce::dontSendNotification);
+                chip[kChips - 1].setToggleState (i == kChips - 1, juce::dontSendNotification);
+                applyFilter();
+            };
             chip[i].setTitle (juce::String ("Filter ") + chipNames[i]);
-            if (i == 0 || i == 1 || i == kChips - 1) addAndMakeVisible (chip[i]);   // ALL, FAV, USER; category chips stay as hidden filters
+            chip[i].setDescription (juce::String ("Filter presets by ") + chipNames[i]);
+            chip[i].setWantsKeyboardFocus (true);
+            if (i == 0 || i == 1 || i == kChips - 1) addAndMakeVisible (chip[i]);   // ALL, FAV and USER remain direct one-click filters
         }
+
+        // The six category filters live in one keyboard-accessible selector so every
+        // category is reachable without shrinking the preset list or hiding controls.
+        categoryFilter.addItem ("CATEGORY", 1);
+        categoryFilter.addItem ("VOCAL", 2);
+        categoryFilter.addItem ("RHYTHM", 3);
+        categoryFilter.addItem ("SPACE", 4);
+        categoryFilter.addItem ("TAPE", 5);
+        categoryFilter.addItem ("LO-FI", 6);
+        categoryFilter.addItem ("CREATIVE", 7);
+        categoryFilter.setSelectedId (1, juce::dontSendNotification);
+        categoryFilter.setJustificationType (juce::Justification::centredLeft);
+        categoryFilter.setColour (juce::ComboBox::backgroundColourId, juce::Colour (0xff050c03));
+        categoryFilter.setColour (juce::ComboBox::textColourId, SkellUi::lime());
+        categoryFilter.setColour (juce::ComboBox::outlineColourId, SkellUi::lime().withAlpha (0.35f));
+        categoryFilter.setColour (juce::ComboBox::focusedOutlineColourId, SkellUi::lime());
+        categoryFilter.setColour (juce::ComboBox::arrowColourId, SkellUi::lime());
+        categoryFilter.setTitle ("Preset category filter");
+        categoryFilter.setDescription ("Choose VOCAL, RHYTHM, SPACE, TAPE, LO-FI or CREATIVE; choose CATEGORY to clear the category filter.");
+        categoryFilter.setTooltip ("Filter presets by category");
+        categoryFilter.setWantsKeyboardFocus (true);
+        categoryFilter.onChange = [this]
+        {
+            const int selected = categoryFilter.getSelectedId();
+            activeChip = (selected >= 2 && selected <= 7) ? selected : 0;
+            chip[0].setToggleState (activeChip == 0, juce::dontSendNotification);
+            chip[1].setToggleState (false, juce::dontSendNotification);
+            chip[kChips - 1].setToggleState (false, juce::dontSendNotification);
+            applyFilter();
+        };
+        addAndMakeVisible (categoryFilter);
         chip[0].setToggleState (true, juce::dontSendNotification);
 
         list.setModel (this);
@@ -45,11 +92,17 @@ public:
         list.setTitle ("Presets");
         addAndMakeVisible (list);
 
-        for (auto* b : { &saveBtn, &delBtn, &closeBtn })
+        for (auto* b : { &saveBtn, &delBtn, &closeBtn, &randBtn, &undoBtn, &redoBtn, &keepTime, &keepMix })
         {
             b->getProperties().set ("flat", true);
             addAndMakeVisible (b);
         }
+        addAndMakeVisible (amount);
+        randBtn.setTitle ("Randomise presets");
+        undoBtn.setTitle ("Undo preset change");
+        redoBtn.setTitle ("Redo preset change");
+        keepTime.setTitle ("Keep delay time when randomising");
+        keepMix.setTitle ("Keep wet mix when randomising");
         keepTime.setClickingTogglesState (true);  keepMix.setClickingTogglesState (true);
         keepTime.getProperties().set ("led", true);  keepMix.getProperties().set ("led", true);
         randBtn.onClick  = [this] { proc.randomise (static_cast<float> (amount.getValue()), keepTime.getToggleState(), keepMix.getToggleState()); changed(); };
@@ -104,13 +157,18 @@ public:
         g.fillRoundedRectangle (b, 6.0f);
         g.setColour (SkellUi::lime().withAlpha (SkellUi::highContrast ? 0.9f : 0.35f));
         g.drawRoundedRectangle (b, 6.0f, 1.0f);
+        g.setColour (SkellUi::dimText());
+        g.setFont (juce::FontOptions (SkellUi::fit (8.5f)).withStyle ("Bold"));
+        g.drawText ("RANDOMISE AMOUNT", amountLabel, juce::Justification::centredLeft, false);
     }
 
     void resized() override
     {
         auto r = getLocalBounds().reduced (8);
         auto top = r.removeFromTop (22);
-        search.setBounds (top.removeFromLeft (150));
+        search.setBounds (top.removeFromLeft (220));
+        top.removeFromLeft (6);
+        categoryFilter.setBounds (top.removeFromLeft (170));
         top.removeFromLeft (6);
         const int cw = 64;
         for (int i : { 0, 1, kChips - 1 }) chip[i].setBounds (top.removeFromLeft (cw));
@@ -119,10 +177,27 @@ public:
         r.removeFromRight (8);
         list.setBounds (r);
 
-        auto row = right.removeFromTop (22);
-        saveBtn.setBounds (row.removeFromLeft (92));   delBtn.setBounds (row.removeFromRight (92));
-        right.removeFromTop (8);
-        closeBtn.setBounds (right.removeFromTop (22));
+        auto row = right.removeFromTop (20);
+        saveBtn.setBounds (row.removeFromLeft (92));
+        delBtn.setBounds (row.removeFromRight (92));
+        right.removeFromTop (4);
+        closeBtn.setBounds (right.removeFromTop (18));
+        right.removeFromTop (4);
+        randBtn.setBounds (right.removeFromTop (18));
+        right.removeFromTop (3);
+        amountLabel = right.removeFromTop (14);
+        amount.setBounds (right.removeFromTop (14));
+        right.removeFromTop (3);
+        auto keepRow = right.removeFromTop (18);
+        const int half = (keepRow.getWidth() - 4) / 2;
+        keepTime.setBounds (keepRow.removeFromLeft (half));
+        keepRow.removeFromLeft (4);
+        keepMix.setBounds (keepRow);
+        right.removeFromTop (3);
+        auto historyRow = right.removeFromTop (18);
+        undoBtn.setBounds (historyRow.removeFromLeft (half));
+        historyRow.removeFromLeft (4);
+        redoBtn.setBounds (historyRow);
     }
 
     bool keyPressed (const juce::KeyPress& k) override
@@ -133,7 +208,22 @@ public:
 
     int getNumShown() const { return (int) shown.size(); }
     void setSearchText (const juce::String& t) { search.setText (t, true); }
-    void selectChip (int i) { chip[i].setToggleState (true, juce::sendNotification); }
+    void selectChip (int i)
+    {
+        if (! juce::isPositiveAndBelow (i, kChips)) return;
+        if (i >= 2 && i <= 7)
+        {
+            categoryFilter.setSelectedId (i, juce::sendNotificationSync);
+            return;
+        }
+
+        activeChip = i;
+        categoryFilter.setSelectedId (1, juce::dontSendNotification);
+        chip[0].setToggleState (i == 0, juce::dontSendNotification);
+        chip[1].setToggleState (i == 1, juce::dontSendNotification);
+        chip[kChips - 1].setToggleState (i == kChips - 1, juce::dontSendNotification);
+        applyFilter();
+    }
 
 private:
     static constexpr int kChips = 9;
@@ -221,6 +311,7 @@ private:
 
     DelayAudioProcessor& proc;
     juce::TextEditor search;
+    juce::ComboBox categoryFilter;
     juce::TextButton chip[kChips];
     juce::String chipKey[kChips];
     int activeChip = 0;
