@@ -1,0 +1,66 @@
+# Retain macOS/Linux compile, DSP/stress/realtime and pluginval gates that were
+# previously part of release.yml. Windows product release validation stays
+# separately in release.yml. This workflow never signs or uploads products.
+name: Skell Delay macOS and Linux DSP regression
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest,   name: macOS,   pv: pluginval_macOS.zip }
+          - { os: ubuntu-22.04,   name: Linux,   pv: pluginval_Linux.zip }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxext-dev libfreetype-dev libfontconfig1-dev libgl1-mesa-dev xvfb
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSKELL_BUILD_TESTS=ON ${{ runner.os == 'macOS' && '-DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"' || '' }}
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 2
+
+      - name: Run the tests (DSP, stress, real-time)
+        shell: bash
+        run: ctest --test-dir build -C Release --output-on-failure --timeout 1800
+
+      - name: Preserve CTest failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SkellDelay-CTest-Diagnostics-${{ matrix.name }}
+          path: |
+            build/Testing/Temporary/LastTest.log
+            build/Testing/Temporary/LastTestsFailed.log
+            build/Testing/Temporary/CTestCostData.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: pluginval (strictness 10)
+        shell: bash
+        run: |
+          curl -L -o pv.zip "https://github.com/Tracktion/pluginval/releases/latest/download/${{ matrix.pv }}"
+          unzip -q pv.zip
+          VST3=$(find build -name "*.vst3" -maxdepth 6 | head -1)
+          echo "validating $VST3"
+          case "${{ runner.os }}" in
+            Windows) ./pluginval.exe --strictness-level 10 --validate-in-process --skip-gui-tests "$VST3" ;;
+            macOS)   ./pluginval.app/Contents/MacOS/pluginval --strictness-level 10 --validate-in-process "$VST3"
+                     AU=$(find build -name "*.component" -maxdepth 6 | head -1); [ -n "$AU" ] && ./pluginval.app/Contents/MacOS/pluginval --strictness-level 10 --validate-in-process "$AU" ;;
+            Linux)   xvfb-run -a ./pluginval --strictness-level 10 --validate-in-process "$VST3" ;;
+          esac
+

@@ -19,3 +19,7 @@
 - Historical PR #23 exact-head Windows build passed, **but it was checked against a stacked PR base**. CI on this new direct-main branch is required.
 - Before merging: exact-head Windows configure/build, DSP/stress/realtime CTests, pluginval strictness 10, private-artifact guard, installer rollback, real JUCE UI screenshot inspection, FL Studio project/preset state recall, and owner review of dropping AU from the build targets.
 - No product upload, signed tag, installer distribution, or commercial approval is authorized by this integration branch.
+
+## Retained cross-platform regression coverage
+
+The cumulative branch's Windows-only `.github/workflows/release.yml` would otherwise remove the prior macOS/Linux compile, DSP/stress/real-time and pluginval tests. `.github/workflows/crossplatform-dsp.yml` retains those original non-Windows test steps, with PR-only cancellation. It cannot sign, notarise, package or upload products. The existing Windows product and installer checks remain in the release workflow. Mac AU packaging has **not** been restored; the VST3-only target change still needs explicit compatibility review before merge.
